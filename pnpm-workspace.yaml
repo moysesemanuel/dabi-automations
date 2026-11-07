@@ -8,3 +8,5 @@ allowBuilds:
   "@prisma/engines": true
   msgpackr-extract: true
   '@swc/core': true
+overrides:
+  "@prisma/config>deepmerge-ts": "^8.0.2"
