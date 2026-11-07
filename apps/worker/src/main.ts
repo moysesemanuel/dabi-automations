@@ -7,12 +7,14 @@ import { processCommentEvent, resumePending, type Deps } from "./process-comment
 const env = loadEnv();
 const deps: Deps = {
   prisma: createPrisma(),
-  env: { sendEnabled: env.INSTAGRAM_SEND_ENABLED === "true", graphVersion: env.META_GRAPH_VERSION, encryptionKey: env.TOKEN_ENCRYPTION_KEY },
+  env: { sendEnabled: env.INSTAGRAM_SEND_ENABLED === "true", resumeEnabled: env.INSTAGRAM_RESUME_PENDING_ENABLED === "true", graphVersion: env.META_GRAPH_VERSION, encryptionKey: env.TOKEN_ENCRYPTION_KEY },
   log: (m) => console.log(`[worker] ${m}`),
 };
 
 new Worker(QUEUES.COMMENT_EVENTS, (job) => processCommentEvent(deps, job.data), { connection: { url: env.REDIS_URL } });
-console.log(`worker ouvindo ${QUEUES.COMMENT_EVENTS} | envio real: ${deps.env.sendEnabled ? "LIGADO" : "desligado"}`);
+console.log(`worker ouvindo ${QUEUES.COMMENT_EVENTS} | envio real: ${deps.env.sendEnabled ? "LIGADO" : "desligado"} | retomada de pendentes: ${deps.env.resumeEnabled ? "LIGADA" : "desligada"}`);
 
-// Retomada de entregas PENDING: só quando o envio estiver habilitado.
-if (deps.env.sendEnabled) resumePending(deps).then((n) => n && console.log(`[worker] retomadas ${n} entregas pendentes`));
+// Retomada de entregas PENDING: exige as DUAS flags (envio e retomada). Nunca é implícita.
+if (deps.env.sendEnabled && deps.env.resumeEnabled) {
+  resumePending(deps).catch((e) => console.error("[worker] retomada abortada:", e instanceof Error ? e.message : e));
+}

@@ -8,7 +8,7 @@ const NOW = new Date("2026-11-07T12:00:00Z");
 const isoAgo = (ms: number) => new Date(NOW.getTime() - ms).toISOString().replace("Z", "+0000");
 const H = 3600_000;
 
-function setup(opts: { sendEnabled?: boolean; cred?: boolean; expired?: boolean; status?: string; orgMismatch?: boolean; existingDelivery?: any } = {}) {
+function setup(opts: { sendEnabled?: boolean; resumeEnabled?: boolean; cred?: boolean; expired?: boolean; status?: string; orgMismatch?: boolean; existingDelivery?: any } = {}) {
   const enc = encryptToken(TOKEN, KEY);
   const account = {
     id: "acc1", organizationId: "org1", providerAccountId: "ig1",
@@ -18,7 +18,7 @@ function setup(opts: { sendEnabled?: boolean; cred?: boolean; expired?: boolean;
     },
   };
   const automations = [{ id: "a1", organizationId: opts.orgMismatch ? "orgX" : "org1", keyword: "LINK", replyMessage: "Olá!", linkUrl: "https://dabitech.com.br", status: opts.status ?? "ACTIVE" }];
-  const deliveries: any[] = opts.existingDelivery ? [{ id: "d0", organizationId: "org1", commentId: "c1", status: "PENDING", attempts: 0, ...opts.existingDelivery }] : [];
+  const deliveries: any[] = opts.existingDelivery ? [{ id: "d0", organizationId: "org1", automationId: "a1", commentId: "c1", status: "PENDING", attempts: 0, ...opts.existingDelivery }] : [];
   const events: Record<string, any> = { ev1: { id: "ev1", status: "RECEIVED", error: null } };
   const prisma = {
     socialAccount: { findUnique: async () => account },
@@ -29,7 +29,11 @@ function setup(opts: { sendEnabled?: boolean; cred?: boolean; expired?: boolean;
         const d = { id: `d${deliveries.length + 1}`, status: "PENDING", attempts: 0, ...data }; deliveries.push(d); return d;
       },
       findUnique: async ({ where }: any) => deliveries.find((d) => d.commentId === where.commentId) ?? null,
-      findMany: async () => deliveries.filter((d) => d.status === "PENDING" && d.attempts === 0),
+      findMany: async ({ take, cursor, skip }: any = {}) => {
+        let l = deliveries.filter((d) => d.status === "PENDING" && d.attempts === 0).sort((a, b) => a.id.localeCompare(b.id));
+        if (cursor) l = l.slice(l.findIndex((d) => d.id === cursor.id) + (skip ?? 0));
+        return l.slice(0, take ?? l.length);
+      },
       update: async ({ where, data }: any) => Object.assign(deliveries.find((d) => d.id === where.id)!, data),
       updateMany: async ({ where, data }: any) => {
         const d = deliveries.find((x) => x.id === where.id && x.status === where.status && x.attempts === where.attempts);
@@ -46,7 +50,7 @@ function setup(opts: { sendEnabled?: boolean; cred?: boolean; expired?: boolean;
   let handler: (url: string, init?: any) => Response | Promise<Response> = () => new Response("{}", { status: 200 });
   const deps: Deps = {
     prisma, now: () => NOW,
-    env: { sendEnabled: opts.sendEnabled ?? true, graphVersion: "v23.0", encryptionKey: KEY },
+    env: { sendEnabled: opts.sendEnabled ?? true, resumeEnabled: opts.resumeEnabled ?? true, graphVersion: "v23.0", encryptionKey: KEY },
     fetchImpl: (async (url: any, init: any) => { calls.push({ url: String(url), init }); return handler(String(url), init); }) as any,
   };
   const route = (ts: string | null, send: () => Response | Promise<Response>) => {
@@ -176,13 +180,59 @@ describe("processCommentEvent", () => {
   });
 });
 
+describe("retomada e integridade", () => {
+  it("entrega nascida com envio desligado NÃO sai por reentrega de webhook se a retomada está desligada", async () => {
+    const t = setup({ sendEnabled: false, resumeEnabled: false });
+    await processCommentEvent(t.deps, job());
+    expect(t.deliveries[0].error).toContain("envio desabilitado");
+    t.deps.env.sendEnabled = true; t.route(isoAgo(H), ok);
+    await processCommentEvent(t.deps, job()); // webhook reentregue
+    expect(t.calls).toHaveLength(0);
+    expect(t.deliveries[0].status).toBe("PENDING");
+  });
+
+  it("retentativa normal de job (entrega PENDING sem a marca) segue o fluxo", async () => {
+    const t = setup({ existingDelivery: { error: null } }); t.route(isoAgo(H), ok);
+    await processCommentEvent(t.deps, job());
+    expect(t.deliveries[0].status).toBe("SENT");
+  });
+
+  it("entrega existente de outra automação com o mesmo commentId: bloqueia", async () => {
+    const t = setup({ existingDelivery: { automationId: "outra" } }); t.route(isoAgo(H), ok);
+    await processCommentEvent(t.deps, job());
+    expect(t.events.ev1.status).toBe("FAILED");
+    expect(t.calls).toHaveLength(0);
+  });
+
+  it("rate limit (HTTP 429 / código 4): FAILED sinalizado, sem retry", async () => {
+    const t = setup();
+    t.route(isoAgo(H), () => new Response(JSON.stringify({ error: { message: "limit", code: 4 } }), { status: 429 }));
+    await processCommentEvent(t.deps, job());
+    expect(t.deliveries[0].status).toBe("FAILED");
+    expect(t.deliveries[0].error).toMatch(/^RATE LIMIT/);
+    expect(t.deliveries[0].providerResponse.rateLimited).toBe(true);
+    expect(t.calls.filter((c) => c.url.includes("/messages"))).toHaveLength(1);
+  });
+
+  it("resumePending relata o resultado e não engole erros", async () => {
+    const t = setup({ sendEnabled: false });
+    await processCommentEvent(t.deps, job());
+    t.deps.env.sendEnabled = true;
+    t.deps.fetchImpl = (async () => new Response("{}", { status: 503 })) as any; // consulta transitória falha
+    const logs: string[] = []; t.deps.log = (m) => logs.push(m);
+    const r = await resumePending(t.deps);
+    expect(r).toMatchObject({ scanned: 1, resumed: 0, failed: 1 });
+    expect(logs.join("\n")).toContain("retomada falhou");
+  });
+});
+
 describe("resumePending", () => {
   it("retoma entrega PENDING quando o envio é habilitado depois", async () => {
     const t = setup({ sendEnabled: false });
     await processCommentEvent(t.deps, job());
     expect(t.deliveries[0].status).toBe("PENDING");
     t.deps.env.sendEnabled = true; t.route(isoAgo(H), ok);
-    expect(await resumePending(t.deps)).toBe(1);
+    expect(await resumePending(t.deps)).toMatchObject({ scanned: 1, resumed: 1, failed: 0 });
     expect(t.deliveries[0].status).toBe("SENT");
   });
 });

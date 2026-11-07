@@ -6,7 +6,7 @@ export const REPLY_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 
 export interface Deps {
   prisma: any;
-  env: { sendEnabled: boolean; graphVersion: string; encryptionKey: string };
+  env: { sendEnabled: boolean; resumeEnabled?: boolean; graphVersion: string; encryptionKey: string };
   fetchImpl?: typeof fetch;
   now?: () => Date;
   log?: (msg: string) => void;
@@ -14,6 +14,12 @@ export interface Deps {
 
 const host = (mode: string) => (mode === "FACEBOOK" ? "https://graph.facebook.com" : "https://graph.instagram.com");
 const clean = (s: unknown, token: string) => String(s ?? "").split(token).join("[token]").slice(0, 300);
+
+/** Marca gravada em MessageDelivery.error quando a entrega nasceu com o envio desligado. */
+export const DISABLED_NOTE = "envio desabilitado (INSTAGRAM_SEND_ENABLED=false)";
+
+/** Códigos de limite de taxa da Meta (além do HTTP 429). Rejeição = não enviou; só registramos à parte. */
+const RATE_LIMIT_CODES = new Set([4, 17, 32, 613]);
 
 /** Falha transitória da consulta (rede/5xx): o job deve ser repetido, a entrega segue PENDING. */
 export class TransientError extends Error {}
@@ -65,8 +71,17 @@ export async function processCommentEvent(deps: Deps, raw: unknown) {
   } catch (e: any) {
     if (e?.code !== "P2002") throw e;
     delivery = await prisma.messageDelivery.findUnique({ where: { commentId: data.commentId } });
-    if (!delivery || delivery.organizationId !== match.organizationId) return;
+    if (!delivery) return;
+    // Vínculo explícito: a entrega existente tem de ser desta organização E desta automação.
+    if (delivery.organizationId !== match.organizationId || delivery.automationId !== match.id) {
+      return setEvent({ status: "FAILED", error: "entrega existente pertence a outra automação/organização" });
+    }
     if (delivery.status !== "PENDING") return; // já tratado: webhook duplicado não reenvia
+    // Nasceu com o envio desligado: só sai pela retomada explícita (INSTAGRAM_RESUME_PENDING_ENABLED),
+    // nem por reentrega de webhook. Retentativa de job normal (error nulo) segue o fluxo.
+    if (delivery.error === DISABLED_NOTE && !env.resumeEnabled) {
+      return setEvent({ error: "entrega PENDING: retomada desabilitada (INSTAGRAM_RESUME_PENDING_ENABLED=false)" });
+    }
   }
   await setEvent({ organizationId: match.organizationId, socialAccountId: account.id });
 
@@ -80,7 +95,8 @@ export async function processCommentEvent(deps: Deps, raw: unknown) {
 
   // Envio desligado: nenhuma chamada à Meta. A entrega fica PENDING e o evento RECEIVED (retomável).
   if (!env.sendEnabled) {
-    return setEvent({ error: "entrega PENDING: envio desabilitado (INSTAGRAM_SEND_ENABLED=false)" });
+    await prisma.messageDelivery.update({ where: { id: delivery.id }, data: { error: DISABLED_NOTE } });
+    return setEvent({ error: `entrega PENDING: ${DISABLED_NOTE}` });
   }
 
   // PENDING com tentativa já registrada = processo caiu durante o envio: resultado ambíguo.
@@ -141,29 +157,60 @@ export async function processCommentEvent(deps: Deps, raw: unknown) {
   }
   if (res.status >= 500) return finish("UNKNOWN", `Meta respondeu HTTP ${res.status}; resultado incerto`, { http: res.status });
   const err = body?.error ?? {};
-  return finish("FAILED", `Meta rejeitou (HTTP ${res.status}, código ${err.code ?? "?"}${err.error_subcode ? `/${err.error_subcode}` : ""}): ${clean(err.message, token)}`, {
-    http: res.status, code: err.code, error_subcode: err.error_subcode, type: err.type, fbtrace_id: err.fbtrace_id,
+  // Limite de taxa: a Meta recusou, então nada foi enviado; continua FAILED (sem retry automático),
+  // mas sinalizado à parte para análise/reconciliação manual.
+  const rateLimited = res.status === 429 || RATE_LIMIT_CODES.has(Number(err.code));
+  return finish("FAILED", `${rateLimited ? "RATE LIMIT: " : ""}Meta rejeitou (HTTP ${res.status}, código ${err.code ?? "?"}${err.error_subcode ? `/${err.error_subcode}` : ""}): ${clean(err.message, token)}`, {
+    http: res.status, code: err.code, error_subcode: err.error_subcode, type: err.type, fbtrace_id: err.fbtrace_id, rateLimited,
   });
 }
 
-/** Retomada: entregas PENDING (envio estava desligado) viram jobs de novo. Idempotente. */
-export async function resumePending(deps: Deps) {
+export interface ResumeReport { scanned: number; resumed: number; skipped: number; failed: number }
+
+/**
+ * Retomada explícita de entregas PENDING (nascidas com o envio desligado). Só roda se
+ * INSTAGRAM_RESUME_PENDING_ENABLED=true. Pagina por cursor, relata o resultado e não engole erros.
+ */
+export async function resumePending(deps: Deps, opts: { batch?: number; max?: number } = {}): Promise<ResumeReport> {
   const { prisma } = deps;
-  const pending = await prisma.messageDelivery.findMany({ where: { status: "PENDING", attempts: 0 }, take: 100 });
-  let n = 0;
-  for (const d of pending) {
-    const ev = await prisma.automationEvent.findUnique({ where: { providerEventKey: `comment:${d.commentId}` }, include: { socialAccount: true } });
-    const v = (ev?.payload as any)?.value;
-    if (!ev || ev.status !== "RECEIVED" || !ev.socialAccount || !v) continue;
-    await processCommentEvent(deps, {
-      eventId: ev.id,
-      igAccountId: ev.socialAccount.providerAccountId,
-      commentId: String(d.commentId),
-      mediaId: String(v.media?.id ?? ""),
-      text: String(v.text ?? ""),
-      fromId: v.from?.id ? String(v.from.id) : undefined,
-    }).catch(() => {});
-    n++;
+  const log = deps.log ?? (() => {});
+  const batch = opts.batch ?? 100;
+  const max = opts.max ?? 1000;
+  const report: ResumeReport = { scanned: 0, resumed: 0, skipped: 0, failed: 0 };
+  let cursor: string | undefined;
+
+  while (report.scanned < max) {
+    const page = await prisma.messageDelivery.findMany({
+      where: { status: "PENDING", attempts: 0 },
+      orderBy: { id: "asc" },
+      take: batch,
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+    });
+    if (page.length === 0) break;
+    cursor = page[page.length - 1].id;
+    report.scanned += page.length;
+
+    for (const d of page) {
+      const ev = await prisma.automationEvent.findUnique({ where: { providerEventKey: `comment:${d.commentId}` }, include: { socialAccount: true } });
+      const v = (ev?.payload as any)?.value;
+      if (!ev || ev.status !== "RECEIVED" || !ev.socialAccount || !v) { report.skipped++; continue; }
+      try {
+        await processCommentEvent(deps, {
+          eventId: ev.id,
+          igAccountId: ev.socialAccount.providerAccountId,
+          commentId: String(d.commentId),
+          mediaId: String(v.media?.id ?? ""),
+          text: String(v.text ?? ""),
+          fromId: v.from?.id ? String(v.from.id) : undefined,
+        });
+        report.resumed++;
+      } catch (e) {
+        report.failed++;
+        log(`retomada falhou (delivery=${d.id}): ${e instanceof Error ? e.message : "erro desconhecido"}`);
+      }
+    }
+    if (page.length < batch) break;
   }
-  return n;
+  log(`retomada: ${JSON.stringify(report)}`);
+  return report;
 }
