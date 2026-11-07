@@ -3,16 +3,15 @@
   "version": "0.0.0",
   "private": true,
   "scripts": {
-    "dev": "node --watch -r @swc-node/register src/main.ts",
+    "dev": "node --watch -r @swc/register src/main.ts",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
   "devDependencies": {
-    "@swc-node/register": "^1.12.1",
     "@swc/core": "^1.16.22",
-    "@types/express": "^5.0.6",
-    "typescript": "^5.9.3"
+    "@swc/register": "^0.1.10",
+    "@types/express": "^5.0.6"
   },
   "dependencies": {
     "@dabi/config": "workspace:*",
