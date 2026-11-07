@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { encryptToken } from "@dabi/config";
-import { processCommentEvent, resumePending, buildMessage, type Deps } from "./process-comment";
+import { processCommentEvent, resumePending, buildMessage, buildMessagePayload, type Deps } from "./process-comment";
 
 const KEY = Buffer.alloc(32, 7).toString("base64");
 const TOKEN = "EAAPRsecrettoken123";
@@ -8,7 +8,7 @@ const NOW = new Date("2026-11-07T12:00:00Z");
 const isoAgo = (ms: number) => new Date(NOW.getTime() - ms).toISOString().replace("Z", "+0000");
 const H = 3600_000;
 
-function setup(opts: { sendEnabled?: boolean; resumeEnabled?: boolean; cred?: boolean; expired?: boolean; status?: string; orgMismatch?: boolean; existingDelivery?: any } = {}) {
+function setup(opts: { auto?: Record<string, unknown>; sendEnabled?: boolean; resumeEnabled?: boolean; cred?: boolean; expired?: boolean; status?: string; orgMismatch?: boolean; existingDelivery?: any } = {}) {
   const enc = encryptToken(TOKEN, KEY);
   const account = {
     id: "acc1", organizationId: "org1", providerAccountId: "ig1",
@@ -17,7 +17,7 @@ function setup(opts: { sendEnabled?: boolean; resumeEnabled?: boolean; cred?: bo
       expiresAt: opts.expired ? new Date(NOW.getTime() - 1000) : null,
     },
   };
-  const automations = [{ id: "a1", organizationId: opts.orgMismatch ? "orgX" : "org1", keyword: "LINK", replyMessage: "Olá!", linkUrl: "https://dabitech.com.br", status: opts.status ?? "ACTIVE" }];
+  const automations = [{ id: "a1", organizationId: opts.orgMismatch ? "orgX" : "org1", keyword: "LINK", replyMessage: "Olá!", linkUrl: "https://dabitech.com.br", status: opts.status ?? "ACTIVE", ...(opts.auto ?? {}) }];
   const deliveries: any[] = opts.existingDelivery ? [{ id: "d0", organizationId: "org1", automationId: "a1", commentId: "c1", status: "PENDING", attempts: 0, ...opts.existingDelivery }] : [];
   const events: Record<string, any> = { ev1: { id: "ev1", status: "RECEIVED", error: null } };
   const prisma = {
@@ -239,4 +239,34 @@ describe("resumePending", () => {
 
 describe("buildMessage", () => {
   it("sem link, só o texto", () => expect(buildMessage("Oi", null)).toBe("Oi"));
+});
+
+describe("formato BUTTON", () => {
+  it("monta generic template com botão web_url", () => {
+    expect(buildMessagePayload({ replyFormat: "BUTTON", replyMessage: "Conheça", linkUrl: "https://dabitech.com.br", buttonTitle: "Ver site" })).toEqual({
+      attachment: { type: "template", payload: { template_type: "generic", elements: [{ title: "Conheça", buttons: [{ type: "web_url", url: "https://dabitech.com.br", title: "Ver site" }] }] } },
+    });
+  });
+  it("rótulo padrão quando não informado; TEXT segue como texto", () => {
+    const p: any = buildMessagePayload({ replyFormat: "BUTTON", replyMessage: "x", linkUrl: "https://a.com" });
+    expect(p.attachment.payload.elements[0].buttons[0].title).toBe("Acessar");
+    expect(buildMessagePayload({ replyFormat: "TEXT", replyMessage: "Oi", linkUrl: "https://a.com" })).toEqual({ text: "Oi https://a.com" });
+  });
+  it("envia o template no corpo da chamada e conclui SENT", async () => {
+    const t = setup({ auto: { replyFormat: "BUTTON", buttonTitle: "Ver site" } }); t.route(isoAgo(H), ok);
+    await processCommentEvent(t.deps, job());
+    const send = t.calls.find((c) => c.url.includes("/messages"))!;
+    const body = JSON.parse(send.init.body);
+    expect(body.recipient).toEqual({ comment_id: "c1" });
+    expect(body.message.attachment.payload.elements[0].buttons[0]).toEqual({ type: "web_url", url: "https://dabitech.com.br", title: "Ver site" });
+    expect(t.deliveries[0].status).toBe("SENT");
+  });
+  it("automação BUTTON inválida (sem link ou título >80): FAILED sem chamar a Meta", async () => {
+    for (const auto of [{ replyFormat: "BUTTON", linkUrl: null }, { replyFormat: "BUTTON", replyMessage: "x".repeat(81) }]) {
+      const t = setup({ auto }); t.route(isoAgo(H), ok);
+      await processCommentEvent(t.deps, job());
+      expect(t.deliveries[0].status).toBe("FAILED");
+      expect(t.calls).toHaveLength(0);
+    }
+  });
 });

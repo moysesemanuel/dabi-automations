@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { ConflictException, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, NotFoundException } from "@nestjs/common";
+import { createAutomationSchema } from "@dabi/contracts";
 import { AutomationsService } from "./automations.service";
 
 function setup() {
@@ -20,7 +21,7 @@ function setup() {
   const svc = new AutomationsService(prisma, { log: async (x: any) => { audits.push(x); } } as any);
   return { svc, autos, audits };
 }
-const dto = { socialAccountId: "acc1", mediaId: "med1", keyword: "LINK", replyMessage: "oi" };
+const dto = { socialAccountId: "acc1", mediaId: "med1", keyword: "LINK", replyMessage: "oi", replyFormat: "TEXT" as const };
 
 describe("AutomationsService", () => {
   it("cria automação ligada à organização e audita", async () => {
@@ -51,5 +52,22 @@ describe("AutomationsService", () => {
     await svc.setStatus("orgA", "u1", a.id, "PAUSED");
     await svc.create("orgA", "u1", dto); // mesma palavra enquanto a primeira está pausada
     await expect(svc.setStatus("orgA", "u1", a.id, "ACTIVE")).rejects.toBeInstanceOf(ConflictException);
+  });
+  it("contrato: BUTTON exige link https e mensagem de até 80 caracteres", () => {
+    const base = { socialAccountId: "a", mediaId: "m", keyword: "LINK", replyMessage: "Conheça", replyFormat: "BUTTON" };
+    expect(createAutomationSchema.safeParse(base).success).toBe(false); // sem link
+    expect(createAutomationSchema.safeParse({ ...base, linkUrl: "http://x.com" }).success).toBe(false); // não-https
+    expect(createAutomationSchema.safeParse({ ...base, linkUrl: "https://x.com", replyMessage: "x".repeat(81) }).success).toBe(false);
+    expect(createAutomationSchema.safeParse({ ...base, linkUrl: "https://x.com", buttonTitle: "x".repeat(21) }).success).toBe(false);
+    const ok = createAutomationSchema.parse({ ...base, linkUrl: "https://x.com", buttonTitle: "Ver site" });
+    expect(ok.replyFormat).toBe("BUTTON");
+    expect(createAutomationSchema.parse({ ...base, replyFormat: undefined }).replyFormat).toBe("TEXT"); // padrão
+  });
+  it("edição valida o resultado mesclado: trocar para BUTTON sem link é recusado", async () => {
+    const { svc } = setup();
+    const a = await svc.create("orgA", "u1", dto);
+    await expect(svc.update("orgA", "u1", a.id, { replyFormat: "BUTTON" })).rejects.toBeInstanceOf(BadRequestException);
+    const ok = await svc.update("orgA", "u1", a.id, { replyFormat: "BUTTON", linkUrl: "https://x.com", buttonTitle: "Ver" });
+    expect(ok.replyFormat).toBe("BUTTON");
   });
 });

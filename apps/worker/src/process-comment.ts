@@ -1,4 +1,4 @@
-import { commentEventJobSchema, normalizeKeyword, type CommentEventJob } from "@dabi/contracts";
+import { commentEventJobSchema, normalizeKeyword, validateReplyShape, DEFAULT_BUTTON_TITLE, type CommentEventJob } from "@dabi/contracts";
 import { decryptToken } from "@dabi/config";
 
 /** Resposta privada só é aceita pela Meta até 7 dias após o comentário. */
@@ -27,6 +27,22 @@ export class TransientError extends Error {}
 /** Texto enviado = mensagem + link (separado no cadastro). */
 export const buildMessage = (replyMessage: string, linkUrl?: string | null) =>
   linkUrl ? `${replyMessage} ${linkUrl}` : replyMessage;
+
+/** TEXT => texto (+ link); BUTTON => generic template com um botão web_url (docs: máx. 80 caracteres no título). */
+export function buildMessagePayload(a: { replyFormat?: string | null; replyMessage: string; linkUrl?: string | null; buttonTitle?: string | null }) {
+  if (a.replyFormat === "BUTTON") {
+    return {
+      attachment: {
+        type: "template",
+        payload: {
+          template_type: "generic",
+          elements: [{ title: a.replyMessage, buttons: [{ type: "web_url", url: a.linkUrl, title: a.buttonTitle || DEFAULT_BUTTON_TITLE }] }],
+        },
+      },
+    };
+  }
+  return { text: buildMessage(a.replyMessage, a.linkUrl) };
+}
 
 const parseMetaTime = (t: unknown) => {
   const d = new Date(String(t ?? "").replace(/([+-]\d\d)(\d\d)$/, "$1:$2"));
@@ -102,6 +118,9 @@ export async function processCommentEvent(deps: Deps, raw: unknown) {
   // PENDING com tentativa já registrada = processo caiu durante o envio: resultado ambíguo.
   if (delivery.attempts > 0) return finish("UNKNOWN", "processo interrompido durante o envio; resultado incerto");
 
+  const shapeError = validateReplyShape(match);
+  if (shapeError) return finish("FAILED", `automação inválida: ${shapeError}`);
+
   const cred = account.credential;
   if (!cred) return finish("FAILED", "conta sem credencial");
   if (cred.expiresAt && cred.expiresAt.getTime() <= now().getTime()) return finish("FAILED", "token expirado");
@@ -135,13 +154,13 @@ export async function processCommentEvent(deps: Deps, raw: unknown) {
   if (claim.count !== 1) return;
 
   // 3) Envio. Sem retry automático depois deste ponto.
-  const message = buildMessage(match.replyMessage, match.linkUrl);
+  const message = buildMessagePayload(match);
   let res: Response;
   try {
     res = await f(`${base}/${account.providerAccountId}/messages`, {
       method: "POST",
       headers: { ...auth, "content-type": "application/json" },
-      body: JSON.stringify({ recipient: { comment_id: data.commentId }, message: { text: message } }),
+      body: JSON.stringify({ recipient: { comment_id: data.commentId }, message }),
       signal: AbortSignal.timeout(15_000),
     });
   } catch {

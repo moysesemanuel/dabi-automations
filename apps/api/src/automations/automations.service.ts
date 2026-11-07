@@ -1,5 +1,5 @@
-import { ConflictException, Injectable, NotFoundException } from "@nestjs/common";
-import { normalizeKeyword, type CreateAutomationDto, type UpdateAutomationDto } from "@dabi/contracts";
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import { normalizeKeyword, validateReplyShape, type CreateAutomationDto, type UpdateAutomationDto } from "@dabi/contracts";
 import { PrismaService } from "../prisma/prisma.module";
 import { AuditService } from "../audit/audit.service";
 
@@ -33,6 +33,7 @@ export class AutomationsService {
       data: {
         organizationId, socialAccountId: media.socialAccountId, mediaId: media.id,
         keyword: dto.keyword, replyMessage: dto.replyMessage, linkUrl: dto.linkUrl ?? null,
+        replyFormat: dto.replyFormat, buttonTitle: dto.buttonTitle ?? null,
       },
     });
     await this.audit.log({ action: "automation.create", organizationId, userId, entityType: "Automation", entityId: a.id });
@@ -49,6 +50,15 @@ export class AutomationsService {
 
   async update(organizationId: string, userId: string, id: string, dto: UpdateAutomationDto) {
     const current = await this.getOwned(organizationId, id);
+    // Regras entre campos valem sobre o resultado já mesclado.
+    const merged = {
+      replyFormat: dto.replyFormat ?? current.replyFormat,
+      replyMessage: dto.replyMessage ?? current.replyMessage,
+      linkUrl: dto.linkUrl === undefined ? current.linkUrl : dto.linkUrl,
+      buttonTitle: dto.buttonTitle === undefined ? current.buttonTitle : dto.buttonTitle,
+    };
+    const shapeError = validateReplyShape(merged);
+    if (shapeError) throw new BadRequestException(shapeError);
     if (dto.keyword && current.status === "ACTIVE") await this.assertNoKeywordConflict(organizationId, current.mediaId, dto.keyword, id);
     const a = await this.prisma.automation.update({ where: { id }, data: dto });
     await this.audit.log({ action: "automation.update", organizationId, userId, entityType: "Automation", entityId: id, metadata: { fields: Object.keys(dto) } });

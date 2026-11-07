@@ -24,6 +24,12 @@ enum LoginMode {
   FACEBOOK
 }
 
+// TEXT = mensagem de texto (link no texto) | BUTTON = generic template com botão web_url
+enum ReplyFormat {
+  TEXT
+  BUTTON
+}
+
 enum AutomationStatus {
   ACTIVE
   PAUSED
@@ -141,6 +147,8 @@ model Automation {
   keyword         String // comparado em minúsculas, sem acento
   replyMessage    String
   linkUrl         String?
+  replyFormat     ReplyFormat      @default(TEXT)
+  buttonTitle     String? // rótulo do botão (formato BUTTON)
   status          AutomationStatus @default(ACTIVE)
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
