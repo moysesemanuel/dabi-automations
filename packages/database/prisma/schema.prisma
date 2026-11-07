@@ -68,6 +68,7 @@ model Organization {
   deliveries     MessageDelivery[]
   publicReplies  PublicReply[]
   auditLogs      AuditLog[]
+  invitations    Invitation[]
 }
 
 model User {
@@ -91,6 +92,23 @@ model Membership {
 
   @@unique([userId, organizationId])
   @@index([organizationId])
+}
+
+// Convite para entrar numa organização. O token (link) só existe em texto na criação; aqui fica o hash.
+model Invitation {
+  id             String       @id @default(cuid())
+  organizationId String
+  email          String // sempre em minúsculas
+  role           Role
+  tokenHash      String       @unique
+  invitedById    String?
+  expiresAt      DateTime
+  acceptedAt     DateTime?
+  revokedAt      DateTime?
+  createdAt      DateTime     @default(now())
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, email])
 }
 
 model SocialAccount {

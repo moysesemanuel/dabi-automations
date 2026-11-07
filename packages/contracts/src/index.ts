@@ -96,3 +96,24 @@ export type UpdateAutomationDto = z.infer<typeof updateAutomationSchema>;
 
 export const setAutomationStatusSchema = z.object({ status: z.enum(["ACTIVE", "PAUSED"]) });
 export type SetAutomationStatusDto = z.infer<typeof setAutomationStatusSchema>;
+
+/** Papéis que podem ser concedidos por convite ou alteração (OWNER não é concedido: nasce com a organização). */
+export const grantableRoleSchema = z.enum(["ADMIN", "MEMBER"]);
+export type GrantableRole = z.infer<typeof grantableRoleSchema>;
+
+export const INVITATION_TTL_DAYS = 7;
+
+export const createInvitationSchema = z.object({
+  email: z.string().trim().toLowerCase().pipe(z.string().email()),
+  role: grantableRoleSchema.default("MEMBER"),
+});
+export type CreateInvitationDto = z.infer<typeof createInvitationSchema>;
+
+export const acceptInvitationNewUserSchema = z.object({
+  name: z.string().trim().min(1).max(100).optional(),
+  password: z.string().min(10).max(128),
+});
+export type AcceptInvitationNewUserDto = z.infer<typeof acceptInvitationNewUserSchema>;
+
+export const updateMemberRoleSchema = z.object({ role: grantableRoleSchema });
+export type UpdateMemberRoleDto = z.infer<typeof updateMemberRoleSchema>;

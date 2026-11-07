@@ -44,6 +44,14 @@ export class AuthService {
     return { token: await this.sign(user.id) };
   }
 
+  /** Cadastro livre? (primeiro usuário do sistema ou ALLOW_REGISTRATION=true). */
+  async registrationOpen() {
+    return this.env.ALLOW_REGISTRATION === "true" || (await this.prisma.user.count()) === 0;
+  }
+
+  /** Emite o JWT de sessão para um usuário já validado (usado também ao aceitar convite). */
+  issueToken(userId: string) { return this.sign(userId); }
+
   private sign(userId: string) {
     return this.jwt.signAsync({ sub: userId }, { secret: this.env.JWT_SECRET, expiresIn: "12h" });
   }
