@@ -135,6 +135,7 @@ dialog.wide { inline-size: min(44rem, calc(100vw - 2rem)); }
 dialog:modal { overscroll-behavior: contain; }
 dialog::backdrop { background: rgb(8 10 16 / 55%); overflow: hidden; overscroll-behavior: contain; }
 .dialog-body { padding: 1.25rem; display: grid; gap: 1rem; }
+.dialog-body .actions { position: sticky; inset-block-end: 0; background: var(--surface); margin-inline: -1.25rem; padding: .75rem 1.25rem; border-block-start: 1px solid var(--border); margin-block-end: -1.25rem; }
 .dialog-head { display: flex; justify-content: space-between; align-items: start; gap: 1rem; }
 
 /* ---------- Login ---------- */
