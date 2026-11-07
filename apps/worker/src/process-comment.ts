@@ -15,7 +15,7 @@ export interface Deps {
 const host = (mode: string) => (mode === "FACEBOOK" ? "https://graph.facebook.com" : "https://graph.instagram.com");
 const clean = (s: unknown, token: string) => String(s ?? "").split(token).join("[token]").slice(0, 300);
 
-/** Marca gravada em MessageDelivery.error quando a entrega nasceu com o envio desligado. */
+/** Texto (só informativo) gravado em MessageDelivery.error quando a entrega é retida (status HELD). */
 export const DISABLED_NOTE = "envio desabilitado (INSTAGRAM_SEND_ENABLED=false)";
 
 /** Códigos de limite de taxa da Meta (além do HTTP 429). Rejeição = não enviou; só registramos à parte. */
@@ -212,11 +212,17 @@ async function runDm(ctx: Ctx): Promise<DmResult> {
       const ev = await prisma.automationEvent.findUnique({ where: { id: data.eventId } });
       return ev?.status === "RECEIVED" ? { kind: "done", status: "SENT", error: null } : stop();
     }
-    if (delivery.status !== "PENDING") return stop(); // já tratado: webhook duplicado não reenvia
-    // Nasceu com o envio desligado: só sai pela retomada explícita (INSTAGRAM_RESUME_PENDING_ENABLED),
-    // nem por reentrega de webhook. Retentativa de job normal (error nulo) segue o fluxo.
-    if (delivery.error === DISABLED_NOTE && !env.resumeEnabled) {
-      return stop(setEvent({ error: "entrega PENDING: retomada desabilitada (INSTAGRAM_RESUME_PENDING_ENABLED=false)" }));
+    if (delivery.status === "HELD") {
+      // Retida de propósito: só sai com envio E retomada habilitados. Reentrega de webhook não libera.
+      if (!env.sendEnabled || !env.resumeEnabled) {
+        return stop(setEvent({ error: "entrega HELD: retomada desabilitada (INSTAGRAM_RESUME_PENDING_ENABLED=false)" }));
+      }
+      // Liberação atômica HELD -> PENDING: só uma execução consegue.
+      const rel = await prisma.messageDelivery.updateMany({ where: { id: delivery.id, status: "HELD" }, data: { status: "PENDING", error: null } });
+      if (rel.count !== 1) return stop();
+      delivery = { ...delivery, status: "PENDING", error: null };
+    } else if (delivery.status !== "PENDING") {
+      return stop(); // já tratado: webhook duplicado não reenvia
     }
   }
   await setEvent({ organizationId: match.organizationId, socialAccountId: account.id });
@@ -229,10 +235,10 @@ async function runDm(ctx: Ctx): Promise<DmResult> {
     return { kind: "done", status, error };
   };
 
-  // Envio desligado: nenhuma chamada à Meta. A entrega fica PENDING e o evento RECEIVED (retomável).
+  // Envio desligado: nenhuma chamada à Meta. A entrega fica HELD e o evento RECEIVED (retomável).
   if (!env.sendEnabled) {
-    await prisma.messageDelivery.update({ where: { id: delivery.id }, data: { error: DISABLED_NOTE } });
-    return stop(setEvent({ error: `entrega PENDING: ${DISABLED_NOTE}` }));
+    await prisma.messageDelivery.update({ where: { id: delivery.id }, data: { status: "HELD", error: DISABLED_NOTE } });
+    return stop(setEvent({ error: `entrega HELD: ${DISABLED_NOTE}` }));
   }
 
   // PENDING com tentativa já registrada = processo caiu durante o envio: resultado ambíguo.
@@ -295,7 +301,7 @@ async function runDm(ctx: Ctx): Promise<DmResult> {
 export interface ResumeReport { scanned: number; resumed: number; skipped: number; failed: number }
 
 /**
- * Retomada explícita de entregas PENDING (nascidas com o envio desligado). Só roda se
+ * Retomada explícita de entregas HELD (retidas com o envio desligado). Só roda se
  * INSTAGRAM_RESUME_PENDING_ENABLED=true. Pagina por cursor, relata o resultado e não engole erros.
  */
 export async function resumePending(deps: Deps, opts: { batch?: number; max?: number } = {}): Promise<ResumeReport> {
@@ -308,7 +314,7 @@ export async function resumePending(deps: Deps, opts: { batch?: number; max?: nu
 
   while (report.scanned < max) {
     const page = await prisma.messageDelivery.findMany({
-      where: { status: "PENDING", attempts: 0 },
+      where: { status: "HELD", attempts: 0 },
       orderBy: { id: "asc" },
       take: batch,
       ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),

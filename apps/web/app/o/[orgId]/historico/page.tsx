@@ -8,7 +8,7 @@ import { StatusBadge } from "@/components/status";
 export const metadata: Metadata = { title: "Histórico" };
 type SP = { tipo?: string; status?: string; automacao?: string; pagina?: string };
 
-const STATUS_OPTIONS = [["", "Todos"], ["SENT", "Enviadas"], ["FAILED", "Falhas"], ["UNKNOWN", "Incertas"], ["PENDING", "Aguardando"]] as const;
+const STATUS_OPTIONS = [["", "Todos"], ["SENT", "Enviadas"], ["FAILED", "Falhas"], ["UNKNOWN", "Incertas"], ["PENDING", "Aguardando"], ["HELD", "Retidas"]] as const;
 
 function detail(i: History["items"][number]) {
   const p = i.provider;

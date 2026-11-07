@@ -42,12 +42,14 @@ enum EventStatus {
   FAILED
 }
 
-// PENDING = reservado, ainda não chamou a Meta
+// PENDING = reservado, ainda não chamou a Meta (transitório)
+// HELD    = retido de propósito (envio desligado): só sai por liberação explícita (retomada habilitada)
 // SENT    = Meta confirmou
 // FAILED  = Meta rejeitou de forma definitiva
 // UNKNOWN = timeout/erro ambíguo após chamar a Meta: NÃO reenviar às cegas
 enum DeliveryStatus {
   PENDING
+  HELD
   SENT
   FAILED
   UNKNOWN

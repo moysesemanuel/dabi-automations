@@ -74,9 +74,11 @@ describe.skipIf(!url)("concorrência em PostgreSQL real", () => {
   it("job do BullMQ + resumePending + reentrega de webhook ao mesmo tempo: exatamente 1 envio", async () => {
     const sends: string[] = [];
     const job = await mkEvent(`${run}-c2`);
-    await processCommentEvent(mkDeps(false, sends), job); // nasce PENDING com envio desligado
+    await processCommentEvent(mkDeps(false, sends), job); // nasce HELD com envio desligado
     expect(sends).toHaveLength(0);
 
+    const held = await prisma.messageDelivery.findUnique({ where: { commentId: `${run}-c2` } });
+    expect(held?.status).toBe("HELD");
     const on = mkDeps(true, sends);
     await Promise.all([
       processCommentEvent(on, job),

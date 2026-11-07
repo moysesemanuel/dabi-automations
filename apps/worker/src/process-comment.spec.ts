@@ -30,14 +30,14 @@ function setup(opts: { publicEnabled?: boolean; auto?: Record<string, unknown>; 
         const d = { id: `d${deliveries.length + 1}`, status: "PENDING", attempts: 0, ...data }; deliveries.push(d); return d;
       },
       findUnique: async ({ where }: any) => deliveries.find((d) => d.commentId === where.commentId) ?? null,
-      findMany: async ({ take, cursor, skip }: any = {}) => {
-        let l = deliveries.filter((d) => d.status === "PENDING" && d.attempts === 0).sort((a, b) => a.id.localeCompare(b.id));
+      findMany: async ({ where, take, cursor, skip }: any = {}) => {
+        let l = deliveries.filter((d) => d.status === where?.status && d.attempts === 0).sort((a, b) => a.id.localeCompare(b.id));
         if (cursor) l = l.slice(l.findIndex((d) => d.id === cursor.id) + (skip ?? 0));
         return l.slice(0, take ?? l.length);
       },
       update: async ({ where, data }: any) => Object.assign(deliveries.find((d) => d.id === where.id)!, data),
       updateMany: async ({ where, data }: any) => {
-        const d = deliveries.find((x) => x.id === where.id && x.status === where.status && x.attempts === where.attempts);
+        const d = deliveries.find((x) => x.id === where.id && x.status === where.status && (where.attempts === undefined || x.attempts === where.attempts));
         if (d) Object.assign(d, data);
         return { count: d ? 1 : 0 };
       },
@@ -78,11 +78,11 @@ const job = (over: Record<string, unknown> = {}) => ({ eventId: "ev1", igAccount
 const ok = () => new Response(JSON.stringify({ recipient_id: "r1", message_id: "m_1" }), { status: 200 });
 
 describe("processCommentEvent", () => {
-  it("envio desabilitado: nenhuma chamada à Meta, entrega PENDING e evento RECEIVED", async () => {
+  it("envio desabilitado: nenhuma chamada à Meta, entrega HELD e evento RECEIVED", async () => {
     const t = setup({ sendEnabled: false });
     await processCommentEvent(t.deps, job());
     expect(t.calls).toHaveLength(0);
-    expect(t.deliveries[0].status).toBe("PENDING");
+    expect(t.deliveries[0].status).toBe("HELD");
     expect(t.events.ev1.status).toBe("RECEIVED");
   });
 
@@ -197,17 +197,17 @@ describe("processCommentEvent", () => {
 });
 
 describe("retomada e integridade", () => {
-  it("entrega nascida com envio desligado NÃO sai por reentrega de webhook se a retomada está desligada", async () => {
+  it("entrega HELD NÃO sai por reentrega de webhook se a retomada está desligada", async () => {
     const t = setup({ sendEnabled: false, resumeEnabled: false });
     await processCommentEvent(t.deps, job());
-    expect(t.deliveries[0].error).toContain("envio desabilitado");
+    expect(t.deliveries[0].status).toBe("HELD");
     t.deps.env.sendEnabled = true; t.route(isoAgo(H), ok);
     await processCommentEvent(t.deps, job()); // webhook reentregue
     expect(t.calls).toHaveLength(0);
-    expect(t.deliveries[0].status).toBe("PENDING");
+    expect(t.deliveries[0].status).toBe("HELD");
   });
 
-  it("retentativa normal de job (entrega PENDING sem a marca) segue o fluxo", async () => {
+  it("retentativa normal de job (entrega PENDING, não retida) segue o fluxo", async () => {
     const t = setup({ existingDelivery: { error: null } }); t.route(isoAgo(H), ok);
     await processCommentEvent(t.deps, job());
     expect(t.deliveries[0].status).toBe("SENT");
@@ -243,10 +243,10 @@ describe("retomada e integridade", () => {
 });
 
 describe("resumePending", () => {
-  it("retoma entrega PENDING quando o envio é habilitado depois", async () => {
+  it("retoma entrega HELD quando o envio e a retomada são habilitados depois", async () => {
     const t = setup({ sendEnabled: false });
     await processCommentEvent(t.deps, job());
-    expect(t.deliveries[0].status).toBe("PENDING");
+    expect(t.deliveries[0].status).toBe("HELD");
     t.deps.env.sendEnabled = true; t.route(isoAgo(H), ok);
     expect(await resumePending(t.deps)).toMatchObject({ scanned: 1, resumed: 1, failed: 0 });
     expect(t.deliveries[0].status).toBe("SENT");
@@ -255,6 +255,27 @@ describe("resumePending", () => {
 
 describe("buildMessage", () => {
   it("sem link, só o texto", () => expect(buildMessage("Oi", null)).toBe("Oi"));
+});
+
+describe("estado HELD", () => {
+  it("a mensagem de erro em texto NÃO controla nada: PENDING com o mesmo texto ainda segue o fluxo", async () => {
+    const t = setup({ existingDelivery: { error: "envio desabilitado (INSTAGRAM_SEND_ENABLED=false)" }, resumeEnabled: false }); t.route(isoAgo(H), ok);
+    await processCommentEvent(t.deps, job());
+    expect(t.deliveries[0].status).toBe("SENT");
+  });
+  it("HELD com envio e retomada ligados é liberada UMA vez e enviada", async () => {
+    const t = setup({ existingDelivery: { status: "HELD" } }); t.route(isoAgo(H), ok);
+    await processCommentEvent(t.deps, job());
+    await processCommentEvent(t.deps, job());
+    expect(t.calls.filter((c) => c.url.includes("/messages"))).toHaveLength(1);
+    expect(t.deliveries[0].status).toBe("SENT");
+  });
+  it("HELD com retomada ligada mas envio global desligado continua retida", async () => {
+    const t = setup({ existingDelivery: { status: "HELD" }, sendEnabled: false }); t.route(isoAgo(H), ok);
+    await processCommentEvent(t.deps, job());
+    expect(t.calls).toHaveLength(0);
+    expect(t.deliveries[0].status).toBe("HELD");
+  });
 });
 
 describe("formato BUTTON", () => {

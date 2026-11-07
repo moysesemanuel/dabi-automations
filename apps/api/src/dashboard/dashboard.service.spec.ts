@@ -70,6 +70,6 @@ describe("DashboardService", () => {
   });
   it("visão geral conta por organização e por status", async () => {
     const o = await setup().overview("A");
-    expect(o).toMatchObject({ accounts: 1, automations: { active: 1, paused: 1 }, directMessages: { SENT: 1, FAILED: 1, PENDING: 0, UNKNOWN: 0 } });
+    expect(o).toMatchObject({ accounts: 1, automations: { active: 1, paused: 1 }, directMessages: { SENT: 1, FAILED: 1, PENDING: 0, HELD: 0, UNKNOWN: 0 } });
   });
 });
