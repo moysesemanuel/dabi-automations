@@ -16,6 +16,12 @@ export class OrgsController {
     });
   }
 
+  /** Dados do próprio usuário logado (sem hash de senha). */
+  @Get("me/profile")
+  profile(@Req() req: any) {
+    return this.prisma.user.findUniqueOrThrow({ where: { id: req.user.id }, select: { id: true, email: true, name: true } });
+  }
+
   @Get("orgs/:orgId")
   @UseGuards(OrgGuard)
   org(@Param("orgId") orgId: string) {

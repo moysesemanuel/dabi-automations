@@ -1,5 +1,6 @@
 import { Controller, Get, Param, Query, UseGuards } from "@nestjs/common";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
+import { loadEnv } from "@dabi/config";
 import { OrgGuard } from "../orgs/org.guard";
 import { DashboardService } from "./dashboard.service";
 
@@ -12,7 +13,12 @@ export class DashboardController {
   constructor(private svc: DashboardService) {}
 
   @Get("accounts") accounts(@Param("orgId") orgId: string) { return this.svc.accounts(orgId); }
-  @Get("overview") overview(@Param("orgId") orgId: string) { return this.svc.overview(orgId); }
+  @Get("overview")
+  async overview(@Param("orgId") orgId: string) {
+    const env = loadEnv();
+    // Informa ao painel se o servidor está de fato enviando (DM e resposta pública).
+    return { ...(await this.svc.overview(orgId)), sending: { directMessages: env.INSTAGRAM_SEND_ENABLED === "true", publicReplies: env.INSTAGRAM_PUBLIC_REPLY_ENABLED === "true" } };
+  }
 
   @Get("deliveries")
   deliveries(@Param("orgId") orgId: string, @Query("status") status?: string, @Query("automationId") automationId?: string, @Query("page") page?: string, @Query("pageSize") pageSize?: string) {
