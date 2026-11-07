@@ -51,6 +51,7 @@ export class WebhooksService {
           commentId: String(v.id),
           mediaId: String(v.media?.id ?? ""),
           text: String(v.text ?? ""),
+          fromId: v.from?.id ? String(v.from.id) : undefined,
         }, { jobId: commentJobId(String(v.id)), attempts: 3, backoff: { type: "exponential", delay: 2000 } });
       }
     }

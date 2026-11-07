@@ -4,8 +4,9 @@
   "private": true,
   "scripts": {
     "dev": "tsx watch --env-file=../../.env src/main.ts",
-    "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc --noEmit"
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
     "@dabi/config": "workspace:*",
@@ -13,5 +14,8 @@
     "@dabi/database": "workspace:*",
     "bullmq": "^6.7.1",
     "ioredis": "^6.0.0"
+  },
+  "devDependencies": {
+    "vitest": "^5.1.0"
   }
 }

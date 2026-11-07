@@ -1,45 +1,18 @@
 import { Worker } from "bullmq";
 import { createPrisma } from "@dabi/database";
-import { QUEUES, commentEventJobSchema, normalizeKeyword } from "@dabi/contracts";
+import { QUEUES } from "@dabi/contracts";
 import { loadEnv } from "@dabi/config";
+import { processCommentEvent, resumePending, type Deps } from "./process-comment.js";
 
 const env = loadEnv();
-const prisma = createPrisma();
+const deps: Deps = {
+  prisma: createPrisma(),
+  env: { sendEnabled: env.INSTAGRAM_SEND_ENABLED === "true", graphVersion: env.META_GRAPH_VERSION, encryptionKey: env.TOKEN_ENCRYPTION_KEY },
+  log: (m) => console.log(`[worker] ${m}`),
+};
 
-new Worker(
-  QUEUES.COMMENT_EVENTS,
-  async (job) => {
-    const data = commentEventJobSchema.parse(job.data);
-    const account = await prisma.socialAccount.findUnique({
-      where: { provider_providerAccountId: { provider: "INSTAGRAM", providerAccountId: data.igAccountId } },
-    });
-    if (!account) return prisma.automationEvent.update({ where: { id: data.eventId }, data: { status: "IGNORED", error: "conta desconhecida" } });
+new Worker(QUEUES.COMMENT_EVENTS, (job) => processCommentEvent(deps, job.data), { connection: { url: env.REDIS_URL } });
+console.log(`worker ouvindo ${QUEUES.COMMENT_EVENTS} | envio real: ${deps.env.sendEnabled ? "LIGADO" : "desligado"}`);
 
-    const automations = await prisma.automation.findMany({
-      where: { socialAccountId: account.id, status: "ACTIVE", media: { providerMediaId: data.mediaId } },
-    });
-    const text = normalizeKeyword(data.text);
-    const match = automations.find((a) => text.includes(normalizeKeyword(a.keyword)));
-    if (!match) return prisma.automationEvent.update({ where: { id: data.eventId }, data: { status: "IGNORED" } });
-
-    // Reserva idempotente: unique(commentId) impede 2 envios para o mesmo comentário.
-    try {
-      await prisma.messageDelivery.create({
-        data: { organizationId: match.organizationId, automationId: match.id, commentId: data.commentId },
-      });
-    } catch (e: any) {
-      if (e?.code === "P2002") return; // já reservado/enviado
-      throw e;
-    }
-    // O envio da resposta privada (Graph API) ainda NÃO está implementado.
-    // Por isso o evento NÃO vira PROCESSED: a entrega fica PENDING e o evento segue RECEIVED,
-    // evitando "processado" sem mensagem enviada. Quando o envio existir, marcar SENT/FAILED/UNKNOWN
-    // na entrega e PROCESSED no evento (nunca reenviar às cegas após timeout).
-    await prisma.automationEvent.update({
-      where: { id: data.eventId },
-      data: { organizationId: match.organizationId, socialAccountId: account.id, error: "entrega PENDING: envio ainda não implementado" },
-    });
-  },
-  { connection: { url: env.REDIS_URL } },
-);
-console.log("worker ouvindo", QUEUES.COMMENT_EVENTS);
+// Retomada de entregas PENDING: só quando o envio estiver habilitado.
+if (deps.env.sendEnabled) resumePending(deps).then((n) => n && console.log(`[worker] retomadas ${n} entregas pendentes`));

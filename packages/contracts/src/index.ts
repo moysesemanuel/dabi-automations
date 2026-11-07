@@ -18,6 +18,8 @@ export const commentEventJobSchema = z.object({
   commentId: z.string(),
   mediaId: z.string(),
   text: z.string(),
+  /** Autor do comentário (para ignorar comentários da própria conta). */
+  fromId: z.string().optional(),
 });
 export type CommentEventJob = z.infer<typeof commentEventJobSchema>;
 

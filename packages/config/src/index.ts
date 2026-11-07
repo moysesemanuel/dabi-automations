@@ -13,6 +13,8 @@ const schema = z.object({
   API_PORT: z.coerce.number().default(3001),
   WEB_URL: z.string().default("http://localhost:3000"),
   // Registro público desligado por padrão; só o 1º usuário pode se cadastrar.
+  // Envio real de respostas privadas. Desligado por padrão: o worker não chama a Meta.
+  INSTAGRAM_SEND_ENABLED: z.enum(["true", "false"]).default("false"),
   ALLOW_REGISTRATION: z.enum(["true", "false"]).default("false"),
 });
 export type Env = z.infer<typeof schema>;
