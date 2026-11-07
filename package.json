@@ -9,6 +9,8 @@
     "dev:web": "pnpm --filter @dabi/web dev",
     "db:generate": "pnpm --filter @dabi/database generate",
     "db:migrate": "pnpm --filter @dabi/database migrate",
+    "ig:connect": "pnpm --filter @dabi/api connect:instagram --",
+    "db:studio": "pnpm --filter @dabi/database studio",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
     "infra:up": "docker compose -f infra/docker/docker-compose.yml up -d",

@@ -17,6 +17,13 @@ enum Provider {
   INSTAGRAM
 }
 
+// Qual família de API/host a credencial usa:
+// INSTAGRAM = Instagram Login (graph.instagram.com) | FACEBOOK = Facebook Login (graph.facebook.com)
+enum LoginMode {
+  INSTAGRAM
+  FACEBOOK
+}
+
 enum AutomationStatus {
   ACTIVE
   PAUSED
@@ -101,6 +108,7 @@ model SocialCredential {
   encryptedToken   String // AES-256-GCM; chave fora do banco
   tokenIv          String
   tokenTag         String
+  loginMode        LoginMode     @default(INSTAGRAM)
   scopes           String[]
   expiresAt        DateTime?
   updatedAt        DateTime      @updatedAt

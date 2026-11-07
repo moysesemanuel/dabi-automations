@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "node --env-file=../../.env --watch -r @swc/register src/main.ts",
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.build.json",
+    "connect:instagram": "node --env-file=../../.env -r @swc/register src/cli/connect-instagram.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
