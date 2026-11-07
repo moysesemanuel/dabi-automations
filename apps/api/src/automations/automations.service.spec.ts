@@ -21,7 +21,7 @@ function setup() {
   const svc = new AutomationsService(prisma, { log: async (x: any) => { audits.push(x); } } as any);
   return { svc, autos, audits };
 }
-const dto = { socialAccountId: "acc1", mediaId: "med1", keyword: "LINK", replyMessage: "oi", replyFormat: "TEXT" as const };
+const dto = { socialAccountId: "acc1", mediaId: "med1", keyword: "LINK", replyMessage: "oi", replyFormat: "TEXT" as const, dmEnabled: true, publicReplyEnabled: false };
 
 describe("AutomationsService", () => {
   it("cria automação ligada à organização e audita", async () => {
@@ -69,5 +69,22 @@ describe("AutomationsService", () => {
     await expect(svc.update("orgA", "u1", a.id, { replyFormat: "BUTTON" })).rejects.toBeInstanceOf(BadRequestException);
     const ok = await svc.update("orgA", "u1", a.id, { replyFormat: "BUTTON", linkUrl: "https://x.com", buttonTitle: "Ver" });
     expect(ok.replyFormat).toBe("BUTTON");
+  });
+  it("contrato: resposta pública exige mensagem; ao menos uma ação habilitada", () => {
+    const base = { socialAccountId: "a", mediaId: "m", keyword: "LINK", replyMessage: "oi" };
+    expect(createAutomationSchema.safeParse({ ...base, publicReplyEnabled: true }).success).toBe(false);
+    expect(createAutomationSchema.safeParse({ ...base, publicReplyEnabled: true, publicReplyMessage: "x".repeat(301) }).success).toBe(false);
+    expect(createAutomationSchema.safeParse({ ...base, dmEnabled: false }).success).toBe(false); // nenhuma ação
+    const ok = createAutomationSchema.parse({ ...base, publicReplyEnabled: true, publicReplyMessage: "Prontinho! Te enviei o link no direct." });
+    expect(ok).toMatchObject({ dmEnabled: true, publicReplyEnabled: true });
+    expect(createAutomationSchema.parse(base)).toMatchObject({ dmEnabled: true, publicReplyEnabled: false }); // padrões
+    expect(createAutomationSchema.safeParse({ ...base, dmEnabled: false, publicReplyEnabled: true, publicReplyMessage: "ok" }).success).toBe(true);
+  });
+  it("edição: ligar resposta pública sem mensagem é recusado", async () => {
+    const { svc } = setup();
+    const a = await svc.create("orgA", "u1", dto);
+    await expect(svc.update("orgA", "u1", a.id, { publicReplyEnabled: true })).rejects.toBeInstanceOf(BadRequestException);
+    const ok = await svc.update("orgA", "u1", a.id, { publicReplyEnabled: true, publicReplyMessage: "Prontinho!" });
+    expect(ok.publicReplyEnabled).toBe(true);
   });
 });

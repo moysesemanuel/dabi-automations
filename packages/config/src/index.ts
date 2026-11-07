@@ -15,6 +15,8 @@ const schema = z.object({
   // Registro público desligado por padrão; só o 1º usuário pode se cadastrar.
   // Envio real de respostas privadas. Desligado por padrão: o worker não chama a Meta.
   INSTAGRAM_SEND_ENABLED: z.enum(["true", "false"]).default("false"),
+  // Resposta pública automática nos comentários. Desligada por padrão.
+  INSTAGRAM_PUBLIC_REPLY_ENABLED: z.enum(["true", "false"]).default("false"),
   // Retomada de entregas PENDING antigas (exige também INSTAGRAM_SEND_ENABLED=true). Desligada por padrão.
   INSTAGRAM_RESUME_PENDING_ENABLED: z.enum(["true", "false"]).default("false"),
   ALLOW_REGISTRATION: z.enum(["true", "false"]).default("false"),

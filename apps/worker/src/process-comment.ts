@@ -6,7 +6,7 @@ export const REPLY_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 
 export interface Deps {
   prisma: any;
-  env: { sendEnabled: boolean; resumeEnabled?: boolean; graphVersion: string; encryptionKey: string };
+  env: { sendEnabled: boolean; resumeEnabled?: boolean; publicReplyEnabled?: boolean; graphVersion: string; encryptionKey: string };
   fetchImpl?: typeof fetch;
   now?: () => Date;
   log?: (msg: string) => void;
@@ -49,16 +49,40 @@ const parseMetaTime = (t: unknown) => {
   return Number.isNaN(d.getTime()) ? null : d;
 };
 
+type Status = "SENT" | "FAILED" | "UNKNOWN";
+type Ctx = { deps: Deps; data: CommentEventJob; account: any; match: any; setEvent: (d: Record<string, unknown>) => Promise<any> };
+type DmResult = { kind: "stop"; result?: unknown } | { kind: "done"; status: Status; error: string | null };
+
+/** Credencial -> host/versão/header. Nunca devolve o token em mensagens de erro. */
+function resolveAuth(ctx: Ctx): { base: string; auth: Record<string, string>; token: string } | { error: string } {
+  const { deps, account } = ctx;
+  const cred = account.credential;
+  if (!cred) return { error: "conta sem credencial" };
+  if (cred.expiresAt && cred.expiresAt.getTime() <= (deps.now ?? (() => new Date()))().getTime()) return { error: "token expirado" };
+  try {
+    const token = decryptToken({ encrypted: cred.encryptedToken, iv: cred.tokenIv, tag: cred.tokenTag }, deps.env.encryptionKey);
+    return { base: `${host(cred.loginMode)}/${deps.env.graphVersion}`, auth: { authorization: `Bearer ${token}` }, token };
+  } catch {
+    return { error: "não foi possível decifrar a credencial" };
+  }
+}
+
+const metaError = (res: Response, err: any, token: string) => {
+  const rateLimited = res.status === 429 || RATE_LIMIT_CODES.has(Number(err.code));
+  return {
+    error: `${rateLimited ? "RATE LIMIT: " : ""}Meta rejeitou (HTTP ${res.status}, código ${err.code ?? "?"}${err.error_subcode ? `/${err.error_subcode}` : ""}): ${clean(err.message, token)}`,
+    response: { http: res.status, code: err.code, error_subcode: err.error_subcode, type: err.type, fbtrace_id: err.fbtrace_id, rateLimited },
+  };
+};
+
 /**
- * PROCESSED no evento = "o worker terminou de tratar". A verdade sobre a mensagem está
- * em MessageDelivery.status (SENT/FAILED/UNKNOWN). PENDING nunca é terminal.
+ * PROCESSED no evento = "o worker terminou de tratar". A verdade está em MessageDelivery.status (DM)
+ * e PublicReply.status (resposta pública): SENT/FAILED/UNKNOWN. PENDING nunca é terminal.
+ * A resposta pública só sai depois da DM confirmada (SENT) quando a DM está habilitada.
  */
 export async function processCommentEvent(deps: Deps, raw: unknown) {
   const { prisma, env } = deps;
   const data: CommentEventJob = commentEventJobSchema.parse(raw);
-  const now = deps.now ?? (() => new Date());
-  const f = deps.fetchImpl ?? fetch;
-  const log = deps.log ?? (() => {});
   const setEvent = (d: Record<string, unknown>) => prisma.automationEvent.update({ where: { id: data.eventId }, data: d });
 
   const account = await prisma.socialAccount.findUnique({
@@ -78,6 +102,97 @@ export async function processCommentEvent(deps: Deps, raw: unknown) {
   if (!match) return setEvent({ status: "IGNORED" });
   if (match.organizationId !== account.organizationId) return setEvent({ status: "FAILED", error: "organização da automação difere da conta" });
 
+  const dmOn = match.dmEnabled !== false;
+  const pubOn = match.publicReplyEnabled === true;
+  if (!dmOn && !pubOn) return setEvent({ status: "IGNORED", error: "nenhuma ação habilitada na automação" });
+
+  const ctx: Ctx = { deps, data, account, match, setEvent };
+
+  let dm: { status: Status; error: string | null } | null = null;
+  if (dmOn) {
+    const r = await runDm(ctx);
+    if (r.kind === "stop") return r.result;
+    dm = r;
+  } else {
+    await setEvent({ organizationId: match.organizationId, socialAccountId: account.id });
+  }
+
+  // Resposta pública: independente da DM quando a DM está desabilitada; com DM habilitada, só após SENT.
+  let pubNote: string | null = null;
+  if (pubOn && (!dmOn || dm?.status === "SENT")) {
+    if (!env.publicReplyEnabled) {
+      pubNote = "resposta pública desabilitada (INSTAGRAM_PUBLIC_REPLY_ENABLED=false)";
+    } else {
+      const pr = await runPublicReply(ctx);
+      if (pr.status !== "SENT") pubNote = `resposta pública ${pr.status}: ${pr.error}`;
+    }
+  }
+  const dmNote = dm && dm.status !== "SENT" ? `entrega ${dm.status}: ${dm.error}` : null;
+  return setEvent({ status: "PROCESSED", error: [dmNote, pubNote].filter(Boolean).join(" | ") || null });
+}
+
+/** Resposta pública: POST /{comment-id}/replies. Claim atômico antes da chamada; sem retry após resultado ambíguo. */
+async function runPublicReply(ctx: Ctx): Promise<{ status: Status; error: string | null }> {
+  const { deps, data, match } = ctx;
+  const { prisma } = deps;
+  const f = deps.fetchImpl ?? fetch;
+  const log = deps.log ?? (() => {});
+
+  let row: any;
+  try {
+    row = await prisma.publicReply.create({ data: { organizationId: match.organizationId, automationId: match.id, commentId: data.commentId } });
+  } catch (e: any) {
+    if (e?.code !== "P2002") throw e;
+    row = await prisma.publicReply.findUnique({ where: { commentId: data.commentId } });
+    if (!row) return { status: "UNKNOWN", error: "resposta pública não localizada" };
+    if (row.organizationId !== match.organizationId || row.automationId !== match.id) {
+      return { status: "FAILED", error: "resposta pública existente pertence a outra automação/organização" };
+    }
+    if (row.status !== "PENDING") return { status: row.status, error: row.error }; // já tratada: duplicado não republica
+  }
+  const finish = async (status: Status, error: string | null, providerResponse?: unknown) => {
+    await prisma.publicReply.update({ where: { id: row.id }, data: { status, error, ...(providerResponse !== undefined ? { providerResponse } : {}) } });
+    return { status, error };
+  };
+
+  if (row.attempts > 0) return finish("UNKNOWN", "processo interrompido durante a publicação; resultado incerto");
+  const message = String(match.publicReplyMessage ?? "").trim();
+  if (!message) return finish("FAILED", "mensagem pública ausente");
+  const a = resolveAuth(ctx);
+  if ("error" in a) return finish("FAILED", a.error);
+
+  const claim = await prisma.publicReply.updateMany({ where: { id: row.id, status: "PENDING", attempts: 0 }, data: { attempts: 1 } });
+  if (claim.count !== 1) return { status: "UNKNOWN", error: "outra execução assumiu a resposta pública" };
+
+  let res: Response;
+  try {
+    const url = `${a.base}/${encodeURIComponent(data.commentId)}/replies?${new URLSearchParams({ message })}`;
+    res = await f(url, { method: "POST", headers: a.auth, signal: AbortSignal.timeout(15_000) });
+  } catch {
+    return finish("UNKNOWN", "timeout/erro de rede após chamar a Meta; não republicar às cegas");
+  }
+  const body: any = await res.json().catch(() => null);
+  if (res.ok) {
+    if (body?.id) {
+      log(`resposta pública publicada (publicReply=${row.id})`);
+      return finish("SENT", null, { id: body.id });
+    }
+    return finish("UNKNOWN", "Meta respondeu 2xx sem id da resposta");
+  }
+  if (res.status >= 500) return finish("UNKNOWN", `Meta respondeu HTTP ${res.status}; resultado incerto`, { http: res.status });
+  const m = metaError(res, body?.error ?? {}, a.token);
+  return finish("FAILED", m.error, m.response);
+}
+
+/** DM privada (Private Reply). Mesma lógica de antes; retorna o resultado em vez de fechar o evento. */
+async function runDm(ctx: Ctx): Promise<DmResult> {
+  const { deps, data, account, match, setEvent } = ctx;
+  const { prisma, env } = deps;
+  const now = deps.now ?? (() => new Date());
+  const f = deps.fetchImpl ?? fetch;
+  const log = deps.log ?? (() => {});
+  const stop = async (p?: Promise<unknown>): Promise<DmResult> => ({ kind: "stop", result: p ? await p : undefined });
+
   // Reserva idempotente (unique commentId). Persistida ANTES de qualquer chamada externa.
   let delivery: any;
   try {
@@ -87,32 +202,37 @@ export async function processCommentEvent(deps: Deps, raw: unknown) {
   } catch (e: any) {
     if (e?.code !== "P2002") throw e;
     delivery = await prisma.messageDelivery.findUnique({ where: { commentId: data.commentId } });
-    if (!delivery) return;
+    if (!delivery) return stop();
     // Vínculo explícito: a entrega existente tem de ser desta organização E desta automação.
     if (delivery.organizationId !== match.organizationId || delivery.automationId !== match.id) {
-      return setEvent({ status: "FAILED", error: "entrega existente pertence a outra automação/organização" });
+      return stop(setEvent({ status: "FAILED", error: "entrega existente pertence a outra automação/organização" }));
     }
-    if (delivery.status !== "PENDING") return; // já tratado: webhook duplicado não reenvia
+    if (delivery.status === "SENT") {
+      // DM já enviada. Só segue (para a resposta pública) se o evento ficou inacabado, por queda do processo.
+      const ev = await prisma.automationEvent.findUnique({ where: { id: data.eventId } });
+      return ev?.status === "RECEIVED" ? { kind: "done", status: "SENT", error: null } : stop();
+    }
+    if (delivery.status !== "PENDING") return stop(); // já tratado: webhook duplicado não reenvia
     // Nasceu com o envio desligado: só sai pela retomada explícita (INSTAGRAM_RESUME_PENDING_ENABLED),
     // nem por reentrega de webhook. Retentativa de job normal (error nulo) segue o fluxo.
     if (delivery.error === DISABLED_NOTE && !env.resumeEnabled) {
-      return setEvent({ error: "entrega PENDING: retomada desabilitada (INSTAGRAM_RESUME_PENDING_ENABLED=false)" });
+      return stop(setEvent({ error: "entrega PENDING: retomada desabilitada (INSTAGRAM_RESUME_PENDING_ENABLED=false)" }));
     }
   }
   await setEvent({ organizationId: match.organizationId, socialAccountId: account.id });
 
-  const finish = async (status: "SENT" | "FAILED" | "UNKNOWN", error: string | null, providerResponse?: unknown) => {
+  const finish = async (status: Status, error: string | null, providerResponse?: unknown): Promise<DmResult> => {
     await prisma.messageDelivery.update({
       where: { id: delivery.id },
       data: { status, error, ...(providerResponse !== undefined ? { providerResponse } : {}) },
     });
-    await setEvent({ status: "PROCESSED", error: status === "SENT" ? null : `entrega ${status}: ${error}` });
+    return { kind: "done", status, error };
   };
 
   // Envio desligado: nenhuma chamada à Meta. A entrega fica PENDING e o evento RECEIVED (retomável).
   if (!env.sendEnabled) {
     await prisma.messageDelivery.update({ where: { id: delivery.id }, data: { error: DISABLED_NOTE } });
-    return setEvent({ error: `entrega PENDING: ${DISABLED_NOTE}` });
+    return stop(setEvent({ error: `entrega PENDING: ${DISABLED_NOTE}` }));
   }
 
   // PENDING com tentativa já registrada = processo caiu durante o envio: resultado ambíguo.
@@ -121,18 +241,9 @@ export async function processCommentEvent(deps: Deps, raw: unknown) {
   const shapeError = validateReplyShape(match);
   if (shapeError) return finish("FAILED", `automação inválida: ${shapeError}`);
 
-  const cred = account.credential;
-  if (!cred) return finish("FAILED", "conta sem credencial");
-  if (cred.expiresAt && cred.expiresAt.getTime() <= now().getTime()) return finish("FAILED", "token expirado");
-
-  let token: string;
-  try {
-    token = decryptToken({ encrypted: cred.encryptedToken, iv: cred.tokenIv, tag: cred.tokenTag }, env.encryptionKey);
-  } catch {
-    return finish("FAILED", "não foi possível decifrar a credencial");
-  }
-  const base = `${host(cred.loginMode)}/${env.graphVersion}`;
-  const auth = { authorization: `Bearer ${token}` };
+  const a = resolveAuth(ctx);
+  if ("error" in a) return finish("FAILED", a.error);
+  const { base, auth, token } = a;
 
   // 1) Idade do comentário vem da Meta (o webhook não traz timestamp confiável).
   let createdAt: Date | null;
@@ -151,7 +262,7 @@ export async function processCommentEvent(deps: Deps, raw: unknown) {
 
   // 2) Claim atômico + contador gravado antes do envio: dois workers nunca enviam o mesmo comentário.
   const claim = await prisma.messageDelivery.updateMany({ where: { id: delivery.id, status: "PENDING", attempts: 0 }, data: { attempts: 1 } });
-  if (claim.count !== 1) return;
+  if (claim.count !== 1) return stop();
 
   // 3) Envio. Sem retry automático depois deste ponto.
   const message = buildMessagePayload(match);
@@ -175,13 +286,10 @@ export async function processCommentEvent(deps: Deps, raw: unknown) {
     return finish("UNKNOWN", "Meta respondeu 2xx sem message_id");
   }
   if (res.status >= 500) return finish("UNKNOWN", `Meta respondeu HTTP ${res.status}; resultado incerto`, { http: res.status });
-  const err = body?.error ?? {};
   // Limite de taxa: a Meta recusou, então nada foi enviado; continua FAILED (sem retry automático),
   // mas sinalizado à parte para análise/reconciliação manual.
-  const rateLimited = res.status === 429 || RATE_LIMIT_CODES.has(Number(err.code));
-  return finish("FAILED", `${rateLimited ? "RATE LIMIT: " : ""}Meta rejeitou (HTTP ${res.status}, código ${err.code ?? "?"}${err.error_subcode ? `/${err.error_subcode}` : ""}): ${clean(err.message, token)}`, {
-    http: res.status, code: err.code, error_subcode: err.error_subcode, type: err.type, fbtrace_id: err.fbtrace_id, rateLimited,
-  });
+  const m = metaError(res, body?.error ?? {}, token);
+  return finish("FAILED", m.error, m.response);
 }
 
 export interface ResumeReport { scanned: number; resumed: number; skipped: number; failed: number }

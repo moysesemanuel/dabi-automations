@@ -10,9 +10,21 @@ export const DEFAULT_BUTTON_TITLE = "Acessar";
 export const replyFormatSchema = z.enum(["TEXT", "BUTTON"]);
 export type ReplyFormat = z.infer<typeof replyFormatSchema>;
 
+export const PUBLIC_REPLY_MAX = 300;
+
+type ReplyShape = {
+  replyFormat?: string | null; replyMessage: string; linkUrl?: string | null; buttonTitle?: string | null;
+  dmEnabled?: boolean | null; publicReplyEnabled?: boolean | null; publicReplyMessage?: string | null;
+};
+
 /** Regras entre campos (valem na criação, na edição já mesclada e no worker). Retorna a mensagem de erro ou null. */
-export function validateReplyShape(a: { replyFormat?: string | null; replyMessage: string; linkUrl?: string | null; buttonTitle?: string | null }): string | null {
-  if ((a.replyFormat ?? "TEXT") !== "BUTTON") return null;
+export function validateReplyShape(a: ReplyShape): string | null {
+  const dm = a.dmEnabled !== false;
+  const pub = a.publicReplyEnabled === true;
+  if (!dm && !pub) return "Habilite ao menos uma ação: DM privada ou resposta pública.";
+  if (pub && !a.publicReplyMessage?.trim()) return "A resposta pública exige publicReplyMessage.";
+  if (pub && (a.publicReplyMessage?.length ?? 0) > PUBLIC_REPLY_MAX) return `A resposta pública tem no máximo ${PUBLIC_REPLY_MAX} caracteres.`;
+  if (!dm || (a.replyFormat ?? "TEXT") !== "BUTTON") return null;
   if (!a.linkUrl) return "O formato BUTTON exige linkUrl.";
   if (!/^https:\/\//i.test(a.linkUrl)) return "O botão exige um link https.";
   if (a.replyMessage.length > TEMPLATE_TITLE_MAX) return `No formato BUTTON a mensagem tem no máximo ${TEMPLATE_TITLE_MAX} caracteres.`;
@@ -29,6 +41,9 @@ export const createAutomationSchema = z
     linkUrl: z.string().url().optional(),
     replyFormat: replyFormatSchema.default("TEXT"),
     buttonTitle: z.string().trim().min(1).max(BUTTON_TITLE_MAX).optional(),
+    dmEnabled: z.boolean().default(true),
+    publicReplyEnabled: z.boolean().default(false),
+    publicReplyMessage: z.string().trim().min(1).max(PUBLIC_REPLY_MAX).optional(),
   })
   .superRefine((v, ctx) => {
     const err = validateReplyShape(v);
@@ -72,6 +87,9 @@ export const updateAutomationSchema = z
     linkUrl: z.string().url().nullable().optional(),
     replyFormat: replyFormatSchema.optional(),
     buttonTitle: z.string().trim().min(1).max(BUTTON_TITLE_MAX).nullable().optional(),
+    dmEnabled: z.boolean().optional(),
+    publicReplyEnabled: z.boolean().optional(),
+    publicReplyMessage: z.string().trim().min(1).max(PUBLIC_REPLY_MAX).nullable().optional(),
   })
   .refine((o) => Object.keys(o).length > 0, { message: "Informe ao menos um campo" });
 export type UpdateAutomationDto = z.infer<typeof updateAutomationSchema>;

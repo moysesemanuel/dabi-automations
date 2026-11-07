@@ -34,6 +34,7 @@ export class AutomationsService {
         organizationId, socialAccountId: media.socialAccountId, mediaId: media.id,
         keyword: dto.keyword, replyMessage: dto.replyMessage, linkUrl: dto.linkUrl ?? null,
         replyFormat: dto.replyFormat, buttonTitle: dto.buttonTitle ?? null,
+        dmEnabled: dto.dmEnabled, publicReplyEnabled: dto.publicReplyEnabled, publicReplyMessage: dto.publicReplyMessage ?? null,
       },
     });
     await this.audit.log({ action: "automation.create", organizationId, userId, entityType: "Automation", entityId: a.id });
@@ -56,6 +57,9 @@ export class AutomationsService {
       replyMessage: dto.replyMessage ?? current.replyMessage,
       linkUrl: dto.linkUrl === undefined ? current.linkUrl : dto.linkUrl,
       buttonTitle: dto.buttonTitle === undefined ? current.buttonTitle : dto.buttonTitle,
+      dmEnabled: dto.dmEnabled ?? current.dmEnabled,
+      publicReplyEnabled: dto.publicReplyEnabled ?? current.publicReplyEnabled,
+      publicReplyMessage: dto.publicReplyMessage === undefined ? current.publicReplyMessage : dto.publicReplyMessage,
     };
     const shapeError = validateReplyShape(merged);
     if (shapeError) throw new BadRequestException(shapeError);

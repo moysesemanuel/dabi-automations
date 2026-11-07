@@ -8,7 +8,7 @@ const NOW = new Date("2026-11-07T12:00:00Z");
 const isoAgo = (ms: number) => new Date(NOW.getTime() - ms).toISOString().replace("Z", "+0000");
 const H = 3600_000;
 
-function setup(opts: { auto?: Record<string, unknown>; sendEnabled?: boolean; resumeEnabled?: boolean; cred?: boolean; expired?: boolean; status?: string; orgMismatch?: boolean; existingDelivery?: any } = {}) {
+function setup(opts: { publicEnabled?: boolean; auto?: Record<string, unknown>; sendEnabled?: boolean; resumeEnabled?: boolean; cred?: boolean; expired?: boolean; status?: string; orgMismatch?: boolean; existingDelivery?: any } = {}) {
   const enc = encryptToken(TOKEN, KEY);
   const account = {
     id: "acc1", organizationId: "org1", providerAccountId: "ig1",
@@ -19,6 +19,7 @@ function setup(opts: { auto?: Record<string, unknown>; sendEnabled?: boolean; re
   };
   const automations = [{ id: "a1", organizationId: opts.orgMismatch ? "orgX" : "org1", keyword: "LINK", replyMessage: "Olá!", linkUrl: "https://dabitech.com.br", status: opts.status ?? "ACTIVE", ...(opts.auto ?? {}) }];
   const deliveries: any[] = opts.existingDelivery ? [{ id: "d0", organizationId: "org1", automationId: "a1", commentId: "c1", status: "PENDING", attempts: 0, ...opts.existingDelivery }] : [];
+  const publicReplies: any[] = [];
   const events: Record<string, any> = { ev1: { id: "ev1", status: "RECEIVED", error: null } };
   const prisma = {
     socialAccount: { findUnique: async () => account },
@@ -41,6 +42,19 @@ function setup(opts: { auto?: Record<string, unknown>; sendEnabled?: boolean; re
         return { count: d ? 1 : 0 };
       },
     },
+    publicReply: {
+      create: async ({ data }: any) => {
+        if (publicReplies.find((d) => d.commentId === data.commentId)) throw Object.assign(new Error("dup"), { code: "P2002" });
+        const d = { id: `p${publicReplies.length + 1}`, status: "PENDING", attempts: 0, error: null, ...data }; publicReplies.push(d); return d;
+      },
+      findUnique: async ({ where }: any) => publicReplies.find((d) => d.commentId === where.commentId) ?? null,
+      update: async ({ where, data }: any) => Object.assign(publicReplies.find((d) => d.id === where.id)!, data),
+      updateMany: async ({ where, data }: any) => {
+        const d = publicReplies.find((x) => x.id === where.id && x.status === where.status && x.attempts === where.attempts);
+        if (d) Object.assign(d, data);
+        return { count: d ? 1 : 0 };
+      },
+    },
     automationEvent: {
       update: async ({ where, data }: any) => Object.assign(events[where.id], data),
       findUnique: async () => ({ id: "ev1", status: events.ev1.status, socialAccount: account, payload: { value: { media: { id: "m1" }, text: "LINK", from: { id: "u9" } } } }),
@@ -50,13 +64,15 @@ function setup(opts: { auto?: Record<string, unknown>; sendEnabled?: boolean; re
   let handler: (url: string, init?: any) => Response | Promise<Response> = () => new Response("{}", { status: 200 });
   const deps: Deps = {
     prisma, now: () => NOW,
-    env: { sendEnabled: opts.sendEnabled ?? true, resumeEnabled: opts.resumeEnabled ?? true, graphVersion: "v23.0", encryptionKey: KEY },
+    env: { sendEnabled: opts.sendEnabled ?? true, resumeEnabled: opts.resumeEnabled ?? true, publicReplyEnabled: opts.publicEnabled ?? false, graphVersion: "v23.0", encryptionKey: KEY },
     fetchImpl: (async (url: any, init: any) => { calls.push({ url: String(url), init }); return handler(String(url), init); }) as any,
   };
+  let t_pub: (() => Response | Promise<Response>) | undefined;
+  const routePub = (h: () => Response | Promise<Response>) => { t_pub = h; };
   const route = (ts: string | null, send: () => Response | Promise<Response>) => {
-    handler = (url) => (url.includes("/messages") ? send() : new Response(JSON.stringify(ts ? { timestamp: ts, id: "c1" } : {}), { status: 200 }));
+    handler = (url) => (url.includes("/replies") ? (t_pub?.() ?? new Response(JSON.stringify({ id: "r_1" }), { status: 200 })) : url.includes("/messages") ? send() : new Response(JSON.stringify(ts ? { timestamp: ts, id: "c1" } : {}), { status: 200 }));
   };
-  return { deps, calls, deliveries, events, route };
+  return { deps, calls, deliveries, events, route, routePub, publicReplies };
 }
 const job = (over: Record<string, unknown> = {}) => ({ eventId: "ev1", igAccountId: "ig1", commentId: "c1", mediaId: "m1", text: "quero o link", fromId: "u9", ...over });
 const ok = () => new Response(JSON.stringify({ recipient_id: "r1", message_id: "m_1" }), { status: 200 });
@@ -268,5 +284,150 @@ describe("formato BUTTON", () => {
       expect(t.deliveries[0].status).toBe("FAILED");
       expect(t.calls).toHaveLength(0);
     }
+  });
+});
+
+describe("resposta pública", () => {
+  const PUB = { publicReplyEnabled: true, publicReplyMessage: "Prontinho! Te enviei o link no direct." };
+  const replies = (t: any) => t.calls.filter((c: any) => c.url.includes("/replies"));
+
+  it("DM SENT + flag ligada: publica no comentário certo, com Bearer e sem token na URL; guarda o id", async () => {
+    const t = setup({ auto: PUB, publicEnabled: true }); t.route(isoAgo(H), ok);
+    await processCommentEvent(t.deps, job());
+    expect(t.deliveries[0].status).toBe("SENT");
+    const r = replies(t);
+    expect(r).toHaveLength(1);
+    const u = new URL(r[0].url);
+    expect(u.origin + u.pathname).toBe("https://graph.facebook.com/v23.0/c1/replies"); // id do COMENTÁRIO
+    expect(u.searchParams.get("message")).toBe(PUB.publicReplyMessage);
+    expect(r[0].init.method).toBe("POST");
+    expect(r[0].init.headers.authorization).toBe(`Bearer ${TOKEN}`);
+    expect(r[0].url).not.toContain(TOKEN);
+    expect(t.publicReplies[0]).toMatchObject({ status: "SENT", attempts: 1, providerResponse: { id: "r_1" } });
+    expect(t.events.ev1).toMatchObject({ status: "PROCESSED", error: null });
+  });
+
+  it("ordem: a resposta pública só ocorre depois da DM", async () => {
+    const t = setup({ auto: PUB, publicEnabled: true }); t.route(isoAgo(H), ok);
+    await processCommentEvent(t.deps, job());
+    const order = t.calls.map((c) => (c.url.includes("/replies") ? "public" : c.url.includes("/messages") ? "dm" : "age"));
+    expect(order).toEqual(["age", "dm", "public"]);
+  });
+
+  it("DM FAILED ou UNKNOWN: não publica a afirmação", async () => {
+    for (const send of [() => new Response(JSON.stringify({ error: { code: 10, message: "x" } }), { status: 400 }), () => { throw new Error("timeout"); }]) {
+      const t = setup({ auto: PUB, publicEnabled: true }); t.route(isoAgo(H), send as any);
+      await processCommentEvent(t.deps, job());
+      expect(["FAILED", "UNKNOWN"]).toContain(t.deliveries[0].status);
+      expect(replies(t)).toHaveLength(0);
+      expect(t.publicReplies).toHaveLength(0);
+    }
+  });
+
+  it("flag global desligada: DM segue, nenhuma chamada /replies e nenhuma linha criada", async () => {
+    const t = setup({ auto: PUB, publicEnabled: false }); t.route(isoAgo(H), ok);
+    await processCommentEvent(t.deps, job());
+    expect(t.deliveries[0].status).toBe("SENT");
+    expect(replies(t)).toHaveLength(0);
+    expect(t.publicReplies).toHaveLength(0);
+    expect(t.events.ev1.error).toContain("INSTAGRAM_PUBLIC_REPLY_ENABLED=false");
+  });
+
+  it("automação sem resposta pública: nada é publicado mesmo com a flag ligada", async () => {
+    const t = setup({ publicEnabled: true }); t.route(isoAgo(H), ok);
+    await processCommentEvent(t.deps, job());
+    expect(replies(t)).toHaveLength(0);
+  });
+
+  it("DM desabilitada: resposta pública sai sozinha (sem /messages e sem MessageDelivery)", async () => {
+    const t = setup({ auto: { ...PUB, dmEnabled: false }, publicEnabled: true, sendEnabled: false }); t.route(isoAgo(H), ok);
+    await processCommentEvent(t.deps, job());
+    expect(t.calls.some((c) => c.url.includes("/messages"))).toBe(false);
+    expect(t.deliveries).toHaveLength(0);
+    expect(replies(t)).toHaveLength(1);
+    expect(t.publicReplies[0].status).toBe("SENT");
+  });
+
+  it("DM habilitada e envio global desligado: não publica (DM não confirmada)", async () => {
+    const t = setup({ auto: PUB, publicEnabled: true, sendEnabled: false });
+    await processCommentEvent(t.deps, job());
+    expect(t.calls).toHaveLength(0);
+    expect(t.publicReplies).toHaveLength(0);
+  });
+
+  it("erro de permissão da Meta: FAILED com code/subcode, DM continua SENT, sem vazar token", async () => {
+    const t = setup({ auto: PUB, publicEnabled: true }); t.route(isoAgo(H), ok);
+    t.routePub(() => new Response(JSON.stringify({ error: { message: `(#10) ${TOKEN} sem permissão`, type: "OAuthException", code: 10, error_subcode: 2108006, fbtrace_id: "ft" } }), { status: 403 }));
+    await processCommentEvent(t.deps, job());
+    expect(t.deliveries[0].status).toBe("SENT");
+    const pr = t.publicReplies[0];
+    expect(pr.status).toBe("FAILED");
+    expect(pr.error).toContain("10/2108006");
+    expect(pr.providerResponse).toMatchObject({ http: 403, code: 10, error_subcode: 2108006, fbtrace_id: "ft" });
+    expect(JSON.stringify(pr)).not.toContain(TOKEN);
+    expect(JSON.stringify(t.events.ev1)).not.toContain(TOKEN);
+    expect(t.events.ev1.status).toBe("PROCESSED");
+  });
+
+  it("timeout e HTTP 5xx: UNKNOWN, sem retry", async () => {
+    for (const h of [() => { throw new Error("timeout"); }, () => new Response("{}", { status: 502 }), () => new Response("{}", { status: 200 })]) {
+      const t = setup({ auto: PUB, publicEnabled: true }); t.route(isoAgo(H), ok); t.routePub(h as any);
+      await processCommentEvent(t.deps, job());
+      expect(t.publicReplies[0].status).toBe("UNKNOWN");
+      expect(replies(t)).toHaveLength(1);
+    }
+  });
+
+  it("webhook duplicado: segunda execução não publica de novo", async () => {
+    const t = setup({ auto: PUB, publicEnabled: true }); t.route(isoAgo(H), ok);
+    await processCommentEvent(t.deps, job());
+    await processCommentEvent(t.deps, job());
+    expect(replies(t)).toHaveLength(1);
+    expect(t.calls.filter((c) => c.url.includes("/messages"))).toHaveLength(1);
+  });
+
+  it("queda entre DM SENT e a publicação: a reentrega completa só a resposta pública (DM não repete)", async () => {
+    const t = setup({ auto: PUB, publicEnabled: true, existingDelivery: { status: "SENT", attempts: 1 } }); t.route(isoAgo(H), ok);
+    await processCommentEvent(t.deps, job()); // evento ainda RECEIVED
+    expect(t.calls.filter((c) => c.url.includes("/messages"))).toHaveLength(0);
+    expect(replies(t)).toHaveLength(1);
+    expect(t.publicReplies[0].status).toBe("SENT");
+  });
+
+  it("PENDING com tentativa registrada (queda durante a publicação): UNKNOWN, sem nova chamada", async () => {
+    const t = setup({ auto: PUB, publicEnabled: true }); t.route(isoAgo(H), ok);
+    t.publicReplies.push({ id: "p0", organizationId: "org1", automationId: "a1", commentId: "c1", status: "PENDING", attempts: 1, error: null });
+    await processCommentEvent(t.deps, job());
+    expect(t.publicReplies[0].status).toBe("UNKNOWN");
+    expect(replies(t)).toHaveLength(0);
+  });
+
+  it("resposta pública existente de outra automação: bloqueia", async () => {
+    const t = setup({ auto: PUB, publicEnabled: true }); t.route(isoAgo(H), ok);
+    t.publicReplies.push({ id: "p0", organizationId: "org1", automationId: "outra", commentId: "c1", status: "PENDING", attempts: 0, error: null });
+    await processCommentEvent(t.deps, job());
+    expect(replies(t)).toHaveLength(0);
+    expect(t.publicReplies[0].status).toBe("PENDING");
+  });
+
+  it("comentário da própria conta: não responde nem publicamente", async () => {
+    const t = setup({ auto: PUB, publicEnabled: true });
+    await processCommentEvent(t.deps, job({ fromId: "ig1" }));
+    expect(t.calls).toHaveLength(0);
+    expect(t.publicReplies).toHaveLength(0);
+  });
+
+  it("sem credencial: FAILED sem chamada externa", async () => {
+    const t = setup({ auto: { ...PUB, dmEnabled: false }, publicEnabled: true, cred: false });
+    await processCommentEvent(t.deps, job());
+    expect(t.publicReplies[0].status).toBe("FAILED");
+    expect(t.calls).toHaveLength(0);
+  });
+
+  it("automação sem nenhuma ação habilitada: ignora", async () => {
+    const t = setup({ auto: { dmEnabled: false, publicReplyEnabled: false }, publicEnabled: true });
+    await processCommentEvent(t.deps, job());
+    expect(t.events.ev1.status).toBe("IGNORED");
+    expect(t.calls).toHaveLength(0);
   });
 });

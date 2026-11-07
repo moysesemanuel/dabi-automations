@@ -64,6 +64,7 @@ model Organization {
   automations    Automation[]
   events         AutomationEvent[]
   deliveries     MessageDelivery[]
+  publicReplies  PublicReply[]
   auditLogs      AuditLog[]
 }
 
@@ -149,6 +150,10 @@ model Automation {
   linkUrl         String?
   replyFormat     ReplyFormat      @default(TEXT)
   buttonTitle     String? // rótulo do botão (formato BUTTON)
+  // Ações independentes: DM privada e resposta pública no comentário.
+  dmEnabled          Boolean @default(true)
+  publicReplyEnabled Boolean @default(false)
+  publicReplyMessage String?
   status          AutomationStatus @default(ACTIVE)
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
@@ -156,7 +161,8 @@ model Automation {
   socialAccount   SocialAccount    @relation(fields: [socialAccountId], references: [id], onDelete: Cascade)
   media           Media            @relation(fields: [mediaId], references: [id], onDelete: Cascade)
 
-  deliveries MessageDelivery[]
+  deliveries    MessageDelivery[]
+  publicReplies PublicReply[]
 
   @@index([organizationId])
   @@index([mediaId, status])
@@ -192,6 +198,26 @@ model MessageDelivery {
   automation     Automation     @relation(fields: [automationId], references: [id], onDelete: Cascade)
 
   // Meta permite 1 resposta privada por comentário
+  @@unique([commentId])
+  @@index([organizationId, status])
+}
+
+// Resposta pública a um comentário (POST /{comment-id}/replies). Mesmos estados da entrega privada.
+model PublicReply {
+  id               String         @id @default(cuid())
+  organizationId   String
+  automationId     String
+  commentId        String // comment id da Meta
+  status           DeliveryStatus @default(PENDING)
+  attempts         Int            @default(0)
+  providerResponse Json? // { id } da resposta criada
+  error            String?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  organization     Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  automation       Automation     @relation(fields: [automationId], references: [id], onDelete: Cascade)
+
+  // no máximo uma resposta pública por comentário
   @@unique([commentId])
   @@index([organizationId, status])
 }

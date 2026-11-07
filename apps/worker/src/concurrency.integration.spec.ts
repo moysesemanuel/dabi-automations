@@ -15,10 +15,15 @@ describe.skipIf(!url)("concorrência em PostgreSQL real", () => {
   let orgId = "";
   const eventIds: string[] = [];
 
-  const mkDeps = (sendEnabled: boolean, sends: string[]): Deps => ({
+  const mkDeps = (sendEnabled: boolean, sends: string[], publicEnabled = false): Deps => ({
     prisma, now: () => NOW,
-    env: { sendEnabled, resumeEnabled: true, graphVersion: "v23.0", encryptionKey: KEY },
+    env: { sendEnabled, resumeEnabled: true, publicReplyEnabled: publicEnabled, graphVersion: "v23.0", encryptionKey: KEY },
     fetchImpl: (async (u: any) => {
+      if (String(u).includes("/replies")) {
+        sends.push(String(u));
+        await new Promise((r) => setTimeout(r, 50));
+        return new Response(JSON.stringify({ id: "reply1" }), { status: 200 });
+      }
       if (String(u).includes("/messages")) {
         sends.push(String(u));
         await new Promise((r) => setTimeout(r, 50)); // alarga a janela da corrida
@@ -28,12 +33,12 @@ describe.skipIf(!url)("concorrência em PostgreSQL real", () => {
     }) as any,
   });
 
-  const mkEvent = async (commentId: string) => {
+  const mkEvent = async (commentId: string, mediaSuffix = "m") => {
     const ev = await prisma.automationEvent.create({
-      data: { providerEventKey: `comment:${commentId}`, payload: { field: "comments", value: { id: commentId, text: "LINK", media: { id: `${run}-m` }, from: { id: "u1" } } } },
+      data: { providerEventKey: `comment:${commentId}`, payload: { field: "comments", value: { id: commentId, text: "LINK", media: { id: `${run}-${mediaSuffix}` }, from: { id: "u1" } } } },
     });
     eventIds.push(ev.id);
-    return { eventId: ev.id, igAccountId: `${run}-ig`, commentId, mediaId: `${run}-m`, text: "LINK", fromId: "u1" };
+    return { eventId: ev.id, igAccountId: `${run}-ig`, commentId, mediaId: `${run}-${mediaSuffix}`, text: "LINK", fromId: "u1" };
   };
 
   beforeAll(async () => {
@@ -45,6 +50,8 @@ describe.skipIf(!url)("concorrência em PostgreSQL real", () => {
     });
     const media = await prisma.media.create({ data: { organizationId: orgId, socialAccountId: acc.id, providerMediaId: `${run}-m` } });
     await prisma.automation.create({ data: { organizationId: orgId, socialAccountId: acc.id, mediaId: media.id, keyword: "LINK", replyMessage: "Oi", status: "ACTIVE" } });
+    const media2 = await prisma.media.create({ data: { organizationId: orgId, socialAccountId: acc.id, providerMediaId: `${run}-m2` } });
+    await prisma.automation.create({ data: { organizationId: orgId, socialAccountId: acc.id, mediaId: media2.id, keyword: "LINK", replyMessage: "Oi", status: "ACTIVE", publicReplyEnabled: true, publicReplyMessage: "Prontinho!" } });
   });
 
   afterAll(async () => {
@@ -80,5 +87,41 @@ describe.skipIf(!url)("concorrência em PostgreSQL real", () => {
     expect(sends).toHaveLength(1);
     const d = await prisma.messageDelivery.findUnique({ where: { commentId: `${run}-c2` } });
     expect(d).toMatchObject({ status: "SENT", attempts: 1 });
+  });
+
+  it("resposta pública: 6 execuções simultâneas => 1 DM e 1 resposta pública (PublicReply SENT com id)", async () => {
+    const calls: string[] = [];
+    const deps = mkDeps(true, calls, true);
+    const job = await mkEvent(`${run}-c3`, "m2");
+    await Promise.all(Array.from({ length: 6 }, () => processCommentEvent(deps, job)));
+    expect(calls.filter((u) => u.includes("/messages"))).toHaveLength(1);
+    expect(calls.filter((u) => u.includes("/replies"))).toHaveLength(1);
+    const pr = await prisma.publicReply.findMany({ where: { commentId: `${run}-c3` } });
+    expect(pr).toHaveLength(1);
+    expect(pr[0]).toMatchObject({ status: "SENT", attempts: 1, providerResponse: { id: "reply1" } });
+  });
+
+  it("resposta pública: reentregas simultâneas depois do envio não publicam de novo", async () => {
+    const calls: string[] = [];
+    const deps = mkDeps(true, calls, true);
+    const job = await mkEvent(`${run}-c4`, "m2");
+    await processCommentEvent(deps, job);
+    await Promise.all([processCommentEvent(deps, job), processCommentEvent(deps, job), processCommentEvent(deps, job)]);
+    expect(calls.filter((u) => u.includes("/replies"))).toHaveLength(1);
+    expect(calls.filter((u) => u.includes("/messages"))).toHaveLength(1);
+  });
+
+  it("resposta pública: 8 execuções simultâneas com a DM já SENT (queda antes de publicar) => 1 publicação", async () => {
+    const calls: string[] = [];
+    const deps = mkDeps(true, calls, true);
+    const job = await mkEvent(`${run}-c5`, "m2");
+    const auto = await prisma.automation.findFirstOrThrow({ where: { organizationId: orgId, publicReplyEnabled: true } });
+    await prisma.messageDelivery.create({ data: { organizationId: orgId, automationId: auto.id, commentId: `${run}-c5`, status: "SENT", attempts: 1 } });
+    await Promise.all(Array.from({ length: 8 }, () => processCommentEvent(deps, job)));
+    expect(calls.filter((u) => u.includes("/messages"))).toHaveLength(0); // a DM não repete
+    expect(calls.filter((u) => u.includes("/replies"))).toHaveLength(1); // só 1 publicação
+    const pr = await prisma.publicReply.findMany({ where: { commentId: `${run}-c5` } });
+    expect(pr).toHaveLength(1);
+    expect(pr[0]).toMatchObject({ status: "SENT", attempts: 1 });
   });
 });
