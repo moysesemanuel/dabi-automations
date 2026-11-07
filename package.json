@@ -1,0 +1,23 @@
+{
+  "name": "dabi-automations",
+  "private": true,
+  "packageManager": "pnpm@11.13.0",
+  "scripts": {
+    "build": "pnpm -r build",
+    "dev:api": "pnpm --filter @dabi/api dev",
+    "dev:worker": "pnpm --filter @dabi/worker dev",
+    "dev:web": "pnpm --filter @dabi/web dev",
+    "db:generate": "pnpm --filter @dabi/database generate",
+    "db:migrate": "pnpm --filter @dabi/database migrate",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "infra:up": "docker compose -f infra/docker/docker-compose.yml up -d",
+    "infra:down": "docker compose -f infra/docker/docker-compose.yml down"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.0"
+  }
+}

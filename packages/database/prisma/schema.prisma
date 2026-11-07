@@ -1,0 +1,196 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+enum Provider {
+  INSTAGRAM
+}
+
+enum AutomationStatus {
+  ACTIVE
+  PAUSED
+}
+
+enum EventStatus {
+  RECEIVED
+  PROCESSED
+  IGNORED
+  FAILED
+}
+
+// PENDING = reservado, ainda não chamou a Meta
+// SENT    = Meta confirmou
+// FAILED  = Meta rejeitou de forma definitiva
+// UNKNOWN = timeout/erro ambíguo após chamar a Meta: NÃO reenviar às cegas
+enum DeliveryStatus {
+  PENDING
+  SENT
+  FAILED
+  UNKNOWN
+}
+
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  createdAt DateTime @default(now())
+
+  memberships    Membership[]
+  socialAccounts SocialAccount[]
+  media          Media[]
+  automations    Automation[]
+  events         AutomationEvent[]
+  deliveries     MessageDelivery[]
+  auditLogs      AuditLog[]
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String?
+  createdAt    DateTime @default(now())
+
+  memberships Membership[]
+  auditLogs   AuditLog[]
+}
+
+model Membership {
+  id             String       @id @default(cuid())
+  userId         String
+  organizationId String
+  role           Role         @default(MEMBER)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, organizationId])
+  @@index([organizationId])
+}
+
+model SocialAccount {
+  id                String       @id @default(cuid())
+  organizationId    String
+  provider          Provider     @default(INSTAGRAM)
+  providerAccountId String // IG user id
+  username          String
+  createdAt         DateTime     @default(now())
+  organization      Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  credential  SocialCredential?
+  media       Media[]
+  automations Automation[]
+  events      AutomationEvent[]
+
+  @@unique([provider, providerAccountId])
+  @@index([organizationId])
+}
+
+model SocialCredential {
+  id               String        @id @default(cuid())
+  socialAccountId  String        @unique
+  encryptedToken   String // AES-256-GCM; chave fora do banco
+  tokenIv          String
+  tokenTag         String
+  scopes           String[]
+  expiresAt        DateTime?
+  updatedAt        DateTime      @updatedAt
+  socialAccount    SocialAccount @relation(fields: [socialAccountId], references: [id], onDelete: Cascade)
+}
+
+model Media {
+  id              String        @id @default(cuid())
+  organizationId  String
+  socialAccountId String
+  providerMediaId String
+  permalink       String?
+  caption         String?
+  mediaType       String?
+  createdAt       DateTime      @default(now())
+  organization    Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  socialAccount   SocialAccount @relation(fields: [socialAccountId], references: [id], onDelete: Cascade)
+
+  automations Automation[]
+
+  @@unique([socialAccountId, providerMediaId])
+  @@index([organizationId])
+}
+
+model Automation {
+  id              String           @id @default(cuid())
+  organizationId  String
+  socialAccountId String
+  mediaId         String
+  keyword         String // comparado em minúsculas, sem acento
+  replyMessage    String
+  linkUrl         String?
+  status          AutomationStatus @default(ACTIVE)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  socialAccount   SocialAccount    @relation(fields: [socialAccountId], references: [id], onDelete: Cascade)
+  media           Media            @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+
+  deliveries MessageDelivery[]
+
+  @@index([organizationId])
+  @@index([mediaId, status])
+}
+
+model AutomationEvent {
+  id               String          @id @default(cuid())
+  organizationId   String?
+  socialAccountId  String?
+  providerEventKey String          @unique // idempotência do webhook
+  payload          Json
+  status           EventStatus     @default(RECEIVED)
+  error            String?
+  receivedAt       DateTime        @default(now())
+  organization     Organization?   @relation(fields: [organizationId], references: [id])
+  socialAccount    SocialAccount?  @relation(fields: [socialAccountId], references: [id])
+
+  @@index([organizationId, receivedAt])
+}
+
+model MessageDelivery {
+  id             String         @id @default(cuid())
+  organizationId String
+  automationId   String
+  commentId      String // comment id da Meta
+  status         DeliveryStatus @default(PENDING)
+  attempts       Int            @default(0)
+  providerResponse Json?
+  error          String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  automation     Automation     @relation(fields: [automationId], references: [id], onDelete: Cascade)
+
+  // Meta permite 1 resposta privada por comentário
+  @@unique([commentId])
+  @@index([organizationId, status])
+}
+
+model AuditLog {
+  id             String        @id @default(cuid())
+  organizationId String?
+  userId         String?
+  action         String
+  entityType     String?
+  entityId       String?
+  metadata       Json?
+  createdAt      DateTime      @default(now())
+  organization   Organization? @relation(fields: [organizationId], references: [id])
+  user           User?         @relation(fields: [userId], references: [id])
+
+  @@index([organizationId, createdAt])
+}

@@ -1,0 +1,25 @@
+{
+  "name": "@dabi/api",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6"
+  },
+  "dependencies": {
+    "@dabi/config": "workspace:*",
+    "@dabi/contracts": "workspace:*",
+    "@dabi/database": "workspace:*",
+    "@nestjs/common": "^12.4.0",
+    "@nestjs/core": "^12.4.0",
+    "@nestjs/platform-express": "^12.4.0",
+    "bullmq": "^6.7.1",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2"
+  }
+}
