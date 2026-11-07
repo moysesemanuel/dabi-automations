@@ -21,8 +21,24 @@ export class WebhooksController {
   @Post()
   @HttpCode(200)
   async receive(@Req() req: RawBodyRequest<Request>, @Headers("x-hub-signature-256") sig?: string) {
-    if (!isValidMetaSignature(req.rawBody, sig, this.env.META_APP_SECRET)) throw new ForbiddenException();
+    // TEMPORÁRIO (debug do webhook): remover depois de validar a integração. Não logar corpo nem assinatura.
+    console.log("[META] POST recebido", {
+      hasSignature: Boolean(sig),
+      hasRawBody: Boolean(req.rawBody),
+      timestamp: new Date().toISOString(),
+    });
+
+    if (!isValidMetaSignature(req.rawBody, sig, this.env.META_APP_SECRET)) {
+      console.warn("[META] Assinatura inválida");
+      throw new ForbiddenException();
+    }
+
+    console.log("[META] Assinatura validada");
+
     await this.service.ingest(req.body);
+
+    console.log("[META] Evento processado pela ingestão");
+
     return { received: true };
   }
 }
