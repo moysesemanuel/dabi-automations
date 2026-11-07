@@ -24,4 +24,5 @@ jobs:
       - run: pnpm db:generate
       - run: pnpm typecheck
       - run: pnpm test
+      - run: pnpm --filter @dabi/web build
       - run: pnpm audit --prod --audit-level=high

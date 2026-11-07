@@ -21,14 +21,14 @@ type ReplyShape = {
 export function validateReplyShape(a: ReplyShape): string | null {
   const dm = a.dmEnabled !== false;
   const pub = a.publicReplyEnabled === true;
-  if (!dm && !pub) return "Habilite ao menos uma ação: DM privada ou resposta pública.";
-  if (pub && !a.publicReplyMessage?.trim()) return "A resposta pública exige publicReplyMessage.";
-  if (pub && (a.publicReplyMessage?.length ?? 0) > PUBLIC_REPLY_MAX) return `A resposta pública tem no máximo ${PUBLIC_REPLY_MAX} caracteres.`;
+  if (!dm && !pub) return "Ative ao menos uma ação: mensagem privada ou resposta pública.";
+  if (pub && !a.publicReplyMessage?.trim()) return "Escreva a mensagem da resposta pública.";
+  if (pub && (a.publicReplyMessage?.length ?? 0) > PUBLIC_REPLY_MAX) return `A resposta pública pode ter no máximo ${PUBLIC_REPLY_MAX} caracteres.`;
   if (!dm || (a.replyFormat ?? "TEXT") !== "BUTTON") return null;
-  if (!a.linkUrl) return "O formato BUTTON exige linkUrl.";
-  if (!/^https:\/\//i.test(a.linkUrl)) return "O botão exige um link https.";
-  if (a.replyMessage.length > TEMPLATE_TITLE_MAX) return `No formato BUTTON a mensagem tem no máximo ${TEMPLATE_TITLE_MAX} caracteres.`;
-  if (a.buttonTitle && a.buttonTitle.length > BUTTON_TITLE_MAX) return `O rótulo do botão tem no máximo ${BUTTON_TITLE_MAX} caracteres.`;
+  if (!a.linkUrl) return "O formato com botão exige um link.";
+  if (!/^https:\/\//i.test(a.linkUrl)) return "No formato com botão, o link precisa começar com https://.";
+  if (a.replyMessage.length > TEMPLATE_TITLE_MAX) return `No formato com botão, a mensagem pode ter no máximo ${TEMPLATE_TITLE_MAX} caracteres.`;
+  if (a.buttonTitle && a.buttonTitle.length > BUTTON_TITLE_MAX) return `O texto do botão pode ter no máximo ${BUTTON_TITLE_MAX} caracteres.`;
   return null;
 }
 
