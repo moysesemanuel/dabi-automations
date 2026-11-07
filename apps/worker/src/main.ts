@@ -31,11 +31,13 @@ new Worker(
       if (e?.code === "P2002") return; // já reservado/enviado
       throw e;
     }
-    // TODO (etapa 3): chamar Private Replies na Graph API ({env.META_GRAPH_VERSION}),
-    // marcando SENT/FAILED, e UNKNOWN em timeout (nunca reenviar às cegas).
+    // O envio da resposta privada (Graph API) ainda NÃO está implementado.
+    // Por isso o evento NÃO vira PROCESSED: a entrega fica PENDING e o evento segue RECEIVED,
+    // evitando "processado" sem mensagem enviada. Quando o envio existir, marcar SENT/FAILED/UNKNOWN
+    // na entrega e PROCESSED no evento (nunca reenviar às cegas após timeout).
     await prisma.automationEvent.update({
       where: { id: data.eventId },
-      data: { status: "PROCESSED", organizationId: match.organizationId, socialAccountId: account.id },
+      data: { organizationId: match.organizationId, socialAccountId: account.id, error: "entrega PENDING: envio ainda não implementado" },
     });
   },
   { connection: { url: env.REDIS_URL } },

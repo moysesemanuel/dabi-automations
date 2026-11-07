@@ -1,8 +1,8 @@
 import { encryptToken } from "@dabi/config";
+import { MetaApiError, graphGetJson, type LoginMode } from "./graph";
 
-export class ConnectError extends Error {}
-
-export type LoginMode = "INSTAGRAM" | "FACEBOOK";
+export class ConnectError extends MetaApiError {}
+export type { LoginMode };
 
 export interface ConnectInput {
   loginMode?: LoginMode; // padrão: INSTAGRAM
@@ -24,24 +24,6 @@ export interface ConnectDeps {
 
 const DEFAULT_SCOPES = ["instagram_business_basic", "instagram_business_manage_comments"];
 
-async function getJson(deps: ConnectDeps, token: string, url: string) {
-  const f = deps.fetchImpl ?? fetch;
-  let res: Response;
-  try {
-    res = await f(url, { signal: AbortSignal.timeout(10_000) });
-  } catch {
-    throw new ConnectError("Não foi possível consultar a Meta (rede/timeout).");
-  }
-  const body: any = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    // A mensagem de erro da Meta não ecoa o token; mesmo assim, limpamos qualquer ocorrência dele.
-    const raw = String(body?.error?.message ?? "sem detalhes").split(token).join("[token]").slice(0, 200);
-    const code = body?.error?.code != null ? `, código ${body.error.code}` : "";
-    throw new ConnectError(`Meta rejeitou o token (HTTP ${res.status}${code}): ${raw}`);
-  }
-  return body;
-}
-
 /**
  * Consulta a Meta com o token e devolve a identidade real da conta.
  * O token vai na query (formato documentado) e NUNCA entra em mensagens de erro ou logs.
@@ -52,8 +34,8 @@ async function fetchIdentity(deps: ConnectDeps, token: string, mode: LoginMode, 
   const v = deps.graphVersion;
   const body =
     mode === "FACEBOOK"
-      ? await getJson(deps, token, `https://graph.facebook.com/${v}/${encodeURIComponent(accountId)}?fields=id,username&access_token=${t}`)
-      : await getJson(deps, token, `https://graph.instagram.com/${v}/me?fields=user_id,username&access_token=${t}`);
+      ? await graphGetJson(`https://graph.facebook.com/${v}/${encodeURIComponent(accountId)}?fields=id,username&access_token=${t}`, token, deps.fetchImpl)
+      : await graphGetJson(`https://graph.instagram.com/${v}/me?fields=user_id,username&access_token=${t}`, token, deps.fetchImpl);
   const id = String(body.user_id ?? body.id ?? "");
   if (!id || typeof body.username !== "string") throw new ConnectError("Resposta inesperada da Meta.");
   return { id, username: body.username as string };
@@ -62,7 +44,7 @@ async function fetchIdentity(deps: ConnectDeps, token: string, mode: LoginMode, 
 /** Permissões realmente concedidas ao token (modo FACEBOOK). Falha => usa o padrão. */
 async function fetchGrantedScopes(deps: ConnectDeps, token: string): Promise<string[] | null> {
   try {
-    const b = await getJson(deps, token, `https://graph.facebook.com/${deps.graphVersion}/me/permissions?access_token=${encodeURIComponent(token)}`);
+    const b = await graphGetJson(`https://graph.facebook.com/${deps.graphVersion}/me/permissions?access_token=${encodeURIComponent(token)}`, token, deps.fetchImpl);
     const granted = (b.data ?? []).filter((p: any) => p.status === "granted").map((p: any) => String(p.permission));
     return granted.length ? granted : null;
   } catch {

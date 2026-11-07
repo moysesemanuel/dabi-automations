@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import { Queue } from "bullmq";
 import { PrismaService } from "../prisma/prisma.module";
 import { QUEUES, type CommentEventJob } from "@dabi/contracts";
@@ -9,6 +9,7 @@ export const commentJobId = (commentId: string) => `comment-${commentId}`;
 
 @Injectable()
 export class WebhooksService {
+  private readonly logger = new Logger(WebhooksService.name);
   constructor(private prisma: PrismaService) {}
 
   private _queue?: Queue<CommentEventJob>;
@@ -19,20 +20,9 @@ export class WebhooksService {
   }
 
   async ingest(body: any) {
-    // TEMPORÁRIO (diagnóstico do payload): remover depois de validar a integração. Só estrutura, sem texto nem ids de comentário.
-    console.log("[INGEST] Diagnóstico:", {
-      object: body?.object,
-      entryCount: body?.entry?.length ?? 0,
-      entries: (body?.entry ?? []).map((entry: any) => ({
-        accountId: entry.id,
-        changeCount: entry.changes?.length ?? 0,
-        changes: (entry.changes ?? []).map((change: any) => ({
-          field: change.field,
-          hasId: Boolean(change.value?.id),
-          hasText: typeof change.value?.text === "string",
-        })),
-      })),
-    });
+    // Só a forma do payload (campos e contagens), sem ids, textos ou dados pessoais.
+    const fields = (body?.entry ?? []).flatMap((e: any) => (e.changes ?? []).map((c: any) => String(c.field)));
+    this.logger.debug(`ingest: object=${body?.object} entries=${body?.entry?.length ?? 0} fields=[${fields.join(",")}]`);
 
     for (const entry of body?.entry ?? []) {
       for (const change of entry.changes ?? []) {

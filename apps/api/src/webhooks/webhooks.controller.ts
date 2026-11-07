@@ -1,4 +1,4 @@
-import { Controller, ForbiddenException, Get, Headers, HttpCode, Post, Query, Req } from "@nestjs/common";
+import { Controller, ForbiddenException, Logger, Get, Headers, HttpCode, Post, Query, Req } from "@nestjs/common";
 import type { RawBodyRequest } from "@nestjs/common";
 import type { Request } from "express";
 import { loadEnv } from "@dabi/config";
@@ -7,6 +7,7 @@ import { WebhooksService } from "./webhooks.service";
 
 @Controller("webhooks/instagram")
 export class WebhooksController {
+  private readonly logger = new Logger(WebhooksController.name);
   private env = loadEnv();
   constructor(private readonly service: WebhooksService) {}
 
@@ -21,23 +22,13 @@ export class WebhooksController {
   @Post()
   @HttpCode(200)
   async receive(@Req() req: RawBodyRequest<Request>, @Headers("x-hub-signature-256") sig?: string) {
-    // TEMPORÁRIO (debug do webhook): remover depois de validar a integração. Não logar corpo nem assinatura.
-    console.log("[META] POST recebido", {
-      hasSignature: Boolean(sig),
-      hasRawBody: Boolean(req.rawBody),
-      timestamp: new Date().toISOString(),
-    });
-
     if (!isValidMetaSignature(req.rawBody, sig, this.env.META_APP_SECRET)) {
-      console.warn("[META] Assinatura inválida");
+      // Só metadados: nunca o corpo nem a assinatura.
+      this.logger.warn(`Webhook rejeitado: assinatura inválida (hasSignature=${Boolean(sig)}, hasRawBody=${Boolean(req.rawBody)})`);
       throw new ForbiddenException();
     }
 
-    console.log("[META] Assinatura validada");
-
     await this.service.ingest(req.body);
-
-    console.log("[META] Evento processado pela ingestão");
 
     return { received: true };
   }

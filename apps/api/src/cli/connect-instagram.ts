@@ -4,6 +4,7 @@ import { Writable } from "node:stream";
 import { PrismaClient } from "@dabi/database";
 import { loadEnv } from "@dabi/config";
 import { ConnectError, connectInstagramAccount } from "../instagram/instagram-connect";
+import { MetaApiError } from "../instagram/graph";
 
 /** Lê o token sem ecoar no terminal (ou de IG_ACCESS_TOKEN). Nunca vai para argv/histórico. */
 function readSecret(prompt: string): Promise<string> {
@@ -57,7 +58,7 @@ async function main() {
     );
     console.log(`${r.reconnected ? "Reconectada" : "Conectada"}: @${r.username} (socialAccountId=${r.id}) na organização "${orgs[0].name}".`);
   } catch (e) {
-    console.error(e instanceof ConnectError ? `Erro: ${e.message}` : "Erro inesperado ao conectar a conta.");
+    console.error(e instanceof MetaApiError ? `Erro: ${e.message}` : "Erro inesperado ao conectar a conta.");
     process.exitCode = 1;
   } finally {
     await prisma.$disconnect();

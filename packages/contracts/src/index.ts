@@ -37,3 +37,15 @@ export const loginSchema = z.object({
   password: z.string().min(1).max(128),
 });
 export type LoginDto = z.infer<typeof loginSchema>;
+
+export const updateAutomationSchema = z
+  .object({
+    keyword: z.string().trim().min(1).max(50).optional(),
+    replyMessage: z.string().trim().min(1).max(1000).optional(),
+    linkUrl: z.string().url().nullable().optional(),
+  })
+  .refine((o) => Object.keys(o).length > 0, { message: "Informe ao menos um campo" });
+export type UpdateAutomationDto = z.infer<typeof updateAutomationSchema>;
+
+export const setAutomationStatusSchema = z.object({ status: z.enum(["ACTIVE", "PAUSED"]) });
+export type SetAutomationStatusDto = z.infer<typeof setAutomationStatusSchema>;

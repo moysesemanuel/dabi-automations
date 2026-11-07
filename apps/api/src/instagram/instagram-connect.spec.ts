@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { randomBytes } from "node:crypto";
 import { decryptToken } from "@dabi/config";
-import { ConnectError, connectInstagramAccount } from "./instagram-connect";
+import { connectInstagramAccount } from "./instagram-connect";
+import { MetaApiError } from "./graph";
 
 const KEY = randomBytes(32).toString("base64");
 const TOKEN = "IGAA-token-secreto-123";
@@ -82,7 +83,7 @@ describe("connectInstagramAccount", () => {
   });
   it("recusa token rejeitado pela Meta sem expor o token", async () => {
     const e: any = await setup({ status: 400, errorBody: { error: { message: `Invalid OAuth access token ${TOKEN}`, code: 190 } } }).run().catch((x) => x);
-    expect(e).toBeInstanceOf(ConnectError);
+    expect(e).toBeInstanceOf(MetaApiError);
     expect(e.message).toContain("código 190");
     expect(e.message).not.toContain(TOKEN);
   });
