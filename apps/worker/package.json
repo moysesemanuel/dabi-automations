@@ -11,6 +11,7 @@
     "@dabi/config": "workspace:*",
     "@dabi/contracts": "workspace:*",
     "@dabi/database": "workspace:*",
-    "bullmq": "^6.7.1"
+    "bullmq": "^6.7.1",
+    "ioredis": "^6.0.0"
   }
 }

@@ -1,12 +1,12 @@
 import { Injectable } from "@nestjs/common";
 import { Queue } from "bullmq";
-import { createPrisma } from "@dabi/database";
+import { PrismaService } from "../prisma/prisma.module";
 import { QUEUES, type CommentEventJob } from "@dabi/contracts";
 import { loadEnv } from "@dabi/config";
 
 @Injectable()
 export class WebhooksService {
-  private prisma = createPrisma();
+  constructor(private prisma: PrismaService) {}
   private queue = new Queue<CommentEventJob>(QUEUES.COMMENT_EVENTS, {
     connection: { url: loadEnv().REDIS_URL },
   });

@@ -12,6 +12,8 @@ const schema = z.object({
   JWT_SECRET: z.string().min(16),
   API_PORT: z.coerce.number().default(3001),
   WEB_URL: z.string().default("http://localhost:3000"),
+  // Registro público desligado por padrão; só o 1º usuário pode se cadastrar.
+  ALLOW_REGISTRATION: z.enum(["true", "false"]).default("false"),
 });
 export type Env = z.infer<typeof schema>;
 export const loadEnv = (source: NodeJS.ProcessEnv = process.env): Env => schema.parse(source);

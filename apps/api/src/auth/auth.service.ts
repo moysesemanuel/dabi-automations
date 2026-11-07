@@ -1,0 +1,46 @@
+import { ForbiddenException, Injectable, UnauthorizedException } from "@nestjs/common";
+import { JwtService } from "@nestjs/jwt";
+import * as bcrypt from "bcryptjs";
+import { loadEnv } from "@dabi/config";
+import type { LoginDto, RegisterDto } from "@dabi/contracts";
+import { PrismaService } from "../prisma/prisma.module";
+import { AuditService } from "../audit/audit.service";
+
+// hash real fictício: iguala o custo de bcrypt quando o e-mail não existe
+const DUMMY_HASH = bcrypt.hashSync("dummy-password-for-timing", 12);
+
+@Injectable()
+export class AuthService {
+  private env = loadEnv();
+  constructor(private prisma: PrismaService, private jwt: JwtService, private audit: AuditService) {}
+
+  async register(dto: RegisterDto) {
+    const users = await this.prisma.user.count();
+    if (users > 0 && this.env.ALLOW_REGISTRATION !== "true") throw new ForbiddenException("Cadastro desabilitado");
+    const passwordHash = await bcrypt.hash(dto.password, 12);
+    const { user, org } = await this.prisma.$transaction(async (tx) => {
+      const user = await tx.user.create({ data: { email: dto.email, name: dto.name, passwordHash } });
+      const org = await tx.organization.create({
+        data: { name: dto.organizationName, memberships: { create: { userId: user.id, role: "OWNER" } } },
+      });
+      return { user, org };
+    });
+    await this.audit.log({ action: "user.register", userId: user.id, organizationId: org.id });
+    return { token: await this.sign(user.id), organizationId: org.id };
+  }
+
+  async login(dto: LoginDto) {
+    const user = await this.prisma.user.findUnique({ where: { email: dto.email } });
+    const ok = await bcrypt.compare(dto.password, user?.passwordHash ?? DUMMY_HASH);
+    if (!user || !ok) {
+      await this.audit.log({ action: "auth.login_failed", metadata: { email: dto.email } });
+      throw new UnauthorizedException("Credenciais inválidas");
+    }
+    await this.audit.log({ action: "auth.login", userId: user.id });
+    return { token: await this.sign(user.id) };
+  }
+
+  private sign(userId: string) {
+    return this.jwt.signAsync({ sub: userId }, { secret: this.env.JWT_SECRET, expiresIn: "12h" });
+  }
+}

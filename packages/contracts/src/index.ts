@@ -23,3 +23,17 @@ export type CommentEventJob = z.infer<typeof commentEventJobSchema>;
 
 export const normalizeKeyword = (s: string) =>
   s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+
+export const registerSchema = z.object({
+  email: z.string().email().toLowerCase(),
+  password: z.string().min(10).max(128),
+  name: z.string().trim().min(1).max(100).optional(),
+  organizationName: z.string().trim().min(2).max(100),
+});
+export type RegisterDto = z.infer<typeof registerSchema>;
+
+export const loginSchema = z.object({
+  email: z.string().email().toLowerCase(),
+  password: z.string().min(1).max(128),
+});
+export type LoginDto = z.infer<typeof loginSchema>;
