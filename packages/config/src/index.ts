@@ -11,6 +11,8 @@ const schema = z.object({
   TOKEN_ENCRYPTION_KEY: z.string().min(1),
   JWT_SECRET: z.string().min(16),
   API_PORT: z.coerce.number().default(3001),
+  // Se o Redis cair: "local" (contador em memória, padrão) ou "closed" (login responde 503).
+  LOGIN_THROTTLE_REDIS_DOWN: z.enum(["local", "closed"]).default("local"),
   // Quem pode informar o IP do cliente via X-Forwarded-For (formato do "trust proxy" do Express).
   TRUST_PROXY: z.string().default("loopback"),
   WEB_URL: z.string().default("http://localhost:3000"),

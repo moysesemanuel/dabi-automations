@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeAll } from "vitest";
 import { HttpException } from "@nestjs/common";
-import { LoginThrottle, MAX_FAILURES_PER_EMAIL, MAX_FAILURES_PER_IP, type CounterStore } from "./login-throttle";
+import { LocalCounterStore, LoginThrottle, MAX_FAILURES_PER_EMAIL, MAX_FAILURES_PER_IP, type CounterStore } from "./login-throttle";
 
 class MemoryStore implements CounterStore {
   m = new Map<string, number>();
@@ -8,7 +8,8 @@ class MemoryStore implements CounterStore {
   async peek(k: string) { return { count: this.m.get(k) ?? 0, ttl: 600 }; }
   async del(k: string) { this.m.delete(k); }
 }
-const mk = (store: CounterStore = new MemoryStore()) => { const t = new LoginThrottle(); t.store = store; return { t, store }; };
+const mk = (store: CounterStore = new MemoryStore(), mode?: "local" | "closed") => { const t = new LoginThrottle(); t.store = store; t.mode = mode; return { t, store }; };
+const broken: CounterStore = { incr: async () => { throw new Error("down"); }, peek: async () => { throw new Error("down"); }, del: async () => { throw new Error("down"); } };
 const status = async (p: Promise<unknown>) => p.then(() => 200, (e: HttpException) => e.getStatus());
 
 describe("LoginThrottle", () => {
@@ -47,12 +48,38 @@ describe("LoginThrottle", () => {
     expect(e.getStatus()).toBe(429);
     expect(JSON.stringify(e.getResponse())).toContain("retryAfter");
   });
-  it("Redis fora do ar: não bloqueia ninguém e não derruba o login", async () => {
-    const broken: CounterStore = { incr: async () => { throw new Error("down"); }, peek: async () => { throw new Error("down"); }, del: async () => { throw new Error("down"); } };
-    const { t } = mk(broken);
+  it("Redis fora do ar (modo local): continua bloqueando por contador em memória, com os mesmos limites", async () => {
+    const { t } = mk(broken, "local");
+    for (let i = 0; i < MAX_FAILURES_PER_EMAIL; i++) { expect(await status(t.assertAllowed("1.1.1.1", "a@x.com"))).toBe(200); await t.recordFailure("1.1.1.1", "a@x.com"); }
+    expect(await status(t.assertAllowed("1.1.1.1", "a@x.com"))).toBe(429);
+    expect(await status(t.assertAllowed("2.2.2.2", "b@x.com"))).toBe(200); // outro e-mail segue livre
+  });
+  it("falhas registradas com o Redis saudável contam se ele cair depois", async () => {
+    const live = new MemoryStore();
+    const { t } = mk(live, "local");
+    for (let i = 0; i < MAX_FAILURES_PER_EMAIL; i++) await t.recordFailure("1.1.1.1", "a@x.com");
+    t.store = broken; // Redis cai
+    expect(await status(t.assertAllowed("1.1.1.1", "a@x.com"))).toBe(429);
+  });
+  it("Redis fora do ar (modo closed): login indisponível (503), sem liberar nem bloquear às cegas", async () => {
+    const { t } = mk(broken, "closed");
+    expect(await status(t.assertAllowed("1.1.1.1", "a@x.com"))).toBe(503);
     await expect(t.recordFailure("1.1.1.1", "a@x.com")).resolves.toBeUndefined();
-    expect(await status(t.assertAllowed("1.1.1.1", "a@x.com"))).toBe(200);
     await expect(t.recordSuccess("1.1.1.1", "a@x.com")).resolves.toBeUndefined();
+  });
+  it("com o Redis saudável o contador compartilhado é o que vale (modo closed não interfere)", async () => {
+    const { t } = mk(new MemoryStore(), "closed");
+    expect(await status(t.assertAllowed("1.1.1.1", "a@x.com"))).toBe(200);
+  });
+  it("contador local expira, é limitado em tamanho e não cresce sem fim", async () => {
+    let now = 1_000_000;
+    const l = new LocalCounterStore(100, () => now);
+    await l.incr("k", 60);
+    expect((await l.peek("k")).count).toBe(1);
+    now += 61_000;
+    expect((await l.peek("k")).count).toBe(0);
+    for (let i = 0; i < 1000; i++) await l.incr(`chave-${i}`, 600);
+    expect(l.size).toBeLessThanOrEqual(100);
   });
   it("chaves no Redis não contêm o e-mail em texto", async () => {
     const { t, store } = mk();
