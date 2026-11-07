@@ -8,9 +8,10 @@ const icons: Record<string, string> = {
   image: "M4 5h16v14H4zm3 10l3-4 3 3 2-2 3 3",
   bolt: "M13 2L4 14h7l-1 8 9-12h-7z",
   list: "M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01",
+  users: "M16 11a3 3 0 1 0 0-6M3 20a6 6 0 0 1 12 0M17 14a5 5 0 0 1 4 5M9 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6z",
 };
 
-export function Nav({ orgId }: { orgId: string }) {
+export function Nav({ orgId, canManageTeam }: { orgId: string; canManageTeam: boolean }) {
   const path = usePathname();
   const base = `/o/${orgId}`;
   const items = [
@@ -19,6 +20,7 @@ export function Nav({ orgId }: { orgId: string }) {
     { href: `${base}/publicacoes`, label: "Publicações", icon: "image" },
     { href: `${base}/automacoes`, label: "Automações", icon: "bolt" },
     { href: `${base}/historico`, label: "Histórico", icon: "list" },
+    ...(canManageTeam ? [{ href: `${base}/equipe`, label: "Equipe", icon: "users" }] : []),
   ];
   return (
     <nav className="nav" aria-label="Principal">

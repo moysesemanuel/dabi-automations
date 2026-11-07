@@ -2,10 +2,11 @@
 import { useActionState } from "react";
 import { login } from "../actions";
 
-export function LoginForm() {
+export function LoginForm({ next }: { next?: string }) {
   const [state, action, pending] = useActionState(login, undefined);
   return (
     <form action={action} className="form-grid">
+      {next && <input type="hidden" name="next" value={next} />}
       {state?.error && <p className="alert bad" role="alert">{state.error}</p>}
       <div className="field">
         <label htmlFor="email">E-mail</label>

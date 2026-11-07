@@ -18,7 +18,7 @@ export default async function OrgLayout({ children, params }: { children: React.
       <aside className="sidebar">
         <div className="brand"><span className="brand-mark" aria-hidden="true">D</span> DaBi Automations</div>
         <OrgSwitch current={orgId} orgs={memberships.map((m) => m.organization)} />
-        <Nav orgId={orgId} />
+        <Nav orgId={orgId} canManageTeam={current.role === "OWNER" || current.role === "ADMIN"} />
         <div className="side-foot">
           <div className="who">
             <div>{profile.name ?? profile.email}</div>

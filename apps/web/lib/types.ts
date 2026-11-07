@@ -31,3 +31,7 @@ export interface HistoryItem {
 export interface History { page: number; pageSize: number; total: number; totalPages: number; items: HistoryItem[] }
 
 export const canWrite = (role: Role) => role === "OWNER" || role === "ADMIN";
+
+export interface Member { userId: string; email: string; name: string | null; role: Role }
+export interface Invitation { id: string; email: string; role: Role; expiresAt: string; createdAt: string; expired: boolean }
+export const roleLabel: Record<Role, string> = { OWNER: "Proprietário", ADMIN: "Administrador", MEMBER: "Membro" };

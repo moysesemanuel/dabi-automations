@@ -9,6 +9,11 @@ export type ApiResult<T> = { ok: true; status: number; data: T } | { ok: false; 
 
 /** Mensagem amigável a partir do erro do Nest (string, lista de erros do Zod ou texto). */
 function messageFrom(status: number, body: any): string {
+  // Erros de validação (Zod) chegam como { formErrors, fieldErrors }.
+  if (body?.formErrors || body?.fieldErrors) {
+    const all = [...(body.formErrors ?? []), ...Object.values(body.fieldErrors ?? {}).flat()].filter((x) => typeof x === "string");
+    if (all.length) return all.join(" ");
+  }
   const m = body?.message;
   if (Array.isArray(m)) return m.map((x) => (typeof x === "string" ? x : x?.message)).filter(Boolean).join(" ");
   if (typeof m === "string" && m && status < 500) return m;
@@ -65,4 +70,31 @@ export async function apiLogin(email: string, password: string, clientIp?: strin
   } catch {
     return { ok: false, message: "Não foi possível falar com o servidor. Tente novamente em instantes." };
   }
+}
+
+/** Chamada SEM sessão (páginas públicas: convite e cadastro). */
+export async function publicApi<T = unknown>(path: string, init: { method?: string; body?: unknown; token?: string; clientIp?: string } = {}): Promise<ApiResult<T>> {
+  try {
+    const res = await fetch(`${API_URL}${path}`, {
+      method: init.method ?? "GET",
+      headers: {
+        ...(init.body !== undefined ? { "content-type": "application/json" } : {}),
+        ...(init.token ? { authorization: `Bearer ${init.token}` } : {}),
+        ...(init.clientIp ? { "x-forwarded-for": init.clientIp } : {}),
+      },
+      body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
+      cache: "no-store",
+      signal: AbortSignal.timeout(20_000),
+    });
+    const body = await res.json().catch(() => null);
+    if (!res.ok) return { ok: false, status: res.status, message: messageFrom(res.status, body) };
+    return { ok: true, status: res.status, data: body as T };
+  } catch {
+    return { ok: false, status: 0, message: "Não foi possível falar com o servidor. Tente novamente em instantes." };
+  }
+}
+
+export async function registrationOpen(): Promise<boolean> {
+  const r = await publicApi<{ registrationOpen: boolean }>("/auth/status");
+  return r.ok && r.data.registrationOpen;
 }
