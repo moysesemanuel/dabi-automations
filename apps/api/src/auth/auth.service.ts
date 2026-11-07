@@ -5,6 +5,7 @@ import { loadEnv } from "@dabi/config";
 import type { LoginDto, RegisterDto } from "@dabi/contracts";
 import { PrismaService } from "../prisma/prisma.module";
 import { AuditService } from "../audit/audit.service";
+import { LoginThrottle } from "./login-throttle";
 
 // hash real fictício: iguala o custo de bcrypt quando o e-mail não existe
 const DUMMY_HASH = bcrypt.hashSync("dummy-password-for-timing", 12);
@@ -12,7 +13,7 @@ const DUMMY_HASH = bcrypt.hashSync("dummy-password-for-timing", 12);
 @Injectable()
 export class AuthService {
   private env = loadEnv();
-  constructor(private prisma: PrismaService, private jwt: JwtService, private audit: AuditService) {}
+  constructor(private prisma: PrismaService, private jwt: JwtService, private audit: AuditService, private throttle: LoginThrottle) {}
 
   async register(dto: RegisterDto) {
     const users = await this.prisma.user.count();
@@ -29,13 +30,16 @@ export class AuthService {
     return { token: await this.sign(user.id), organizationId: org.id };
   }
 
-  async login(dto: LoginDto) {
+  async login(dto: LoginDto, ip?: string) {
+    await this.throttle.assertAllowed(ip, dto.email); // 429 antes de gastar bcrypt
     const user = await this.prisma.user.findUnique({ where: { email: dto.email } });
     const ok = await bcrypt.compare(dto.password, user?.passwordHash ?? DUMMY_HASH);
     if (!user || !ok) {
+      await this.throttle.recordFailure(ip, dto.email);
       await this.audit.log({ action: "auth.login_failed", metadata: { email: dto.email } });
       throw new UnauthorizedException("Credenciais inválidas");
     }
+    await this.throttle.recordSuccess(ip, dto.email);
     await this.audit.log({ action: "auth.login", userId: user.id });
     return { token: await this.sign(user.id) };
   }

@@ -11,6 +11,8 @@ const schema = z.object({
   TOKEN_ENCRYPTION_KEY: z.string().min(1),
   JWT_SECRET: z.string().min(16),
   API_PORT: z.coerce.number().default(3001),
+  // Quem pode informar o IP do cliente via X-Forwarded-For (formato do "trust proxy" do Express).
+  TRUST_PROXY: z.string().default("loopback"),
   WEB_URL: z.string().default("http://localhost:3000"),
   // Registro público desligado por padrão; só o 1º usuário pode se cadastrar.
   // Envio real de respostas privadas. Desligado por padrão: o worker não chama a Meta.

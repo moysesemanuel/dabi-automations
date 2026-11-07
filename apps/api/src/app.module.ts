@@ -3,6 +3,7 @@ import { JwtModule } from "@nestjs/jwt";
 import { AuditService } from "./audit/audit.service";
 import { AuthController } from "./auth/auth.controller";
 import { AuthService } from "./auth/auth.service";
+import { LoginThrottle } from "./auth/login-throttle";
 import { DashboardController } from "./dashboard/dashboard.controller";
 import { DashboardService } from "./dashboard/dashboard.service";
 import { HealthController } from "./health/health.controller";
@@ -20,6 +21,6 @@ import { WebhooksService } from "./webhooks/webhooks.service";
 @Module({
   imports: [PrismaModule, JwtModule.register({})],
   controllers: [HealthController, WebhooksController, AuthController, OrgsController, MediaController, AutomationsController, DashboardController],
-  providers: [WebhooksService, AuthService, AuditService, OrgGuard, InstagramAccountsService, MediaService, AutomationsService, DashboardService],
+  providers: [WebhooksService, AuthService, LoginThrottle, AuditService, OrgGuard, InstagramAccountsService, MediaService, AutomationsService, DashboardService],
 })
 export class AppModule {}

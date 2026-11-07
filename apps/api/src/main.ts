@@ -8,6 +8,8 @@ async function bootstrap() {
   const env = loadEnv();
   // rawBody é necessário para validar a assinatura X-Hub-Signature-256 da Meta
   const app = await NestFactory.create<NestExpressApplication>(AppModule, { rawBody: true });
+  // IP real do cliente só é aceito de proxies confiáveis (padrão: loopback, onde roda o servidor do painel).
+  app.set("trust proxy", env.TRUST_PROXY);
   await app.listen(env.API_PORT);
 }
 bootstrap();

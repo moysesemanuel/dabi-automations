@@ -51,14 +51,15 @@ export async function apiGet<T>(path: string): Promise<T> {
   throw new Error(r.message);
 }
 
-export async function apiLogin(email: string, password: string): Promise<{ ok: true; token: string } | { ok: false; message: string }> {
+export async function apiLogin(email: string, password: string, clientIp?: string): Promise<{ ok: true; token: string } | { ok: false; message: string }> {
   try {
     const res = await fetch(`${API_URL}/auth/login`, {
-      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email, password }),
+      method: "POST", headers: { "content-type": "application/json", ...(clientIp ? { "x-forwarded-for": clientIp } : {}) }, body: JSON.stringify({ email, password }),
       cache: "no-store", signal: AbortSignal.timeout(15_000),
     });
     const body: any = await res.json().catch(() => null);
     if (res.ok && body?.token) return { ok: true, token: String(body.token) };
+    if (res.status === 429) return { ok: false, message: "Muitas tentativas. Aguarde alguns minutos e tente de novo." };
     if (res.status === 401 || res.status === 400) return { ok: false, message: "E-mail ou senha incorretos." };
     return { ok: false, message: "Não foi possível entrar agora. Tente novamente." };
   } catch {

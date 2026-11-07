@@ -1,4 +1,5 @@
 "use server";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { apiLogin } from "@/lib/api";
 import { createSession, destroySession } from "@/lib/session";
@@ -9,7 +10,9 @@ export async function login(_prev: LoginState | undefined, form: FormData): Prom
   const email = String(form.get("email") ?? "").trim();
   const password = String(form.get("password") ?? "");
   if (!email || !password) return { error: "Informe e-mail e senha.", email };
-  const r = await apiLogin(email, password);
+  // IP do visitante, repassado à API para o limite de tentativas (a API só confia nele vindo de proxy confiável).
+  const ip = (await headers()).get("x-forwarded-for")?.split(",")[0]?.trim();
+  const r = await apiLogin(email, password, ip);
   if (!r.ok) return { error: r.message, email };
   await createSession(r.token);
   redirect("/");
