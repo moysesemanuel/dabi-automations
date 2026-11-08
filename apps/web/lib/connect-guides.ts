@@ -3,7 +3,7 @@
  * (lidas em 08/11/2026). `needsValidation` lista o que NÃO foi confirmado na fonte oficial e deve ser
  * conferido na interface real antes de divulgar para clientes. Nunca é exibido ao usuário.
  */
-export type GuideId = "professional" | "portfolio-create" | "portfolio-find" | "instagram-in-portfolio";
+export type GuideId = "professional" | "portfolio-create" | "portfolio-find" | "instagram-in-portfolio" | "messages-access";
 
 export interface Guide {
   id: GuideId;
@@ -52,13 +52,17 @@ export const GUIDES: Record<GuideId, Guide> = {
     intro: "Se alguém já montou os anúncios ou a Página da sua empresa, talvez o portfólio já exista.",
     steps: [
       "No computador, acesse business.facebook.com e entre com o seu perfil do Facebook.",
-      "Abra o menu suspenso no canto superior esquerdo.",
-      "Se aparecer o nome da sua empresa, esse é o seu portfólio.",
-      "Se só aparecer “Criar um portfólio empresarial”, você ainda não tem um.",
+      "Abra “Configurações” no Meta Business Suite.",
+      "No menu da esquerda, escolha “Informações do portfólio empresarial”.",
+      "Se aparecer o nome da sua empresa com um número de identificação, esse é o seu portfólio.",
+      "Se não houver nenhum portfólio, siga o guia para criar um.",
     ],
     tips: ["Se você não tem acesso total ao portfólio, peça a quem administra para conceder.", "Cada conta do Instagram só pode estar em um portfólio."],
-    links: [{ label: "Como criar um portfólio (Meta)", url: "https://www.facebook.com/business/help/1710077379203657?locale=pt_BR" }],
-    needsValidation: ["A lista de portfólios no menu suspenso do business.facebook.com não está descrita no artigo oficial; confirmar na interface real."],
+    links: [
+      { label: "Onde ver as informações do portfólio (Meta)", url: "https://www.facebook.com/business/help/1181250022022158?locale=pt_BR" },
+      { label: "Como criar um portfólio (Meta)", url: "https://www.facebook.com/business/help/1710077379203657?locale=pt_BR" },
+    ],
+    needsValidation: ["O artigo oficial confirma onde ver as informações de um portfólio existente, mas não descreve o que a tela mostra para quem não tem nenhum; o último passo é uma dedução. Conferir na interface real."],
   },
   "instagram-in-portfolio": {
     id: "instagram-in-portfolio",
@@ -81,6 +85,20 @@ export const GUIDES: Record<GuideId, Guide> = {
       { label: "Como adicionar (Meta)", url: "https://www.facebook.com/business/help/620548115562686?locale=pt_BR" },
       { label: "Se não conseguir adicionar (Meta)", url: "https://www.facebook.com/business/help/567938347644871?locale=pt_BR" },
     ],
+  },
+  "messages-access": {
+    id: "messages-access",
+    title: "Como permitir o acesso às mensagens no Instagram",
+    intro: "Para o DaBiChat enviar respostas por mensagem, o Instagram precisa permitir que ferramentas conectadas acessem as mensagens.",
+    steps: [
+      "No app do Instagram, abra o seu perfil e toque em “Menu”, no canto superior direito.",
+      "Escolha “Mensagens e respostas ao story”.",
+      "Toque em “Pedidos de contato”.",
+      "Em “Ferramentas conectadas”, ative “Permitir acesso às mensagens”.",
+    ],
+    tips: ["Você pode mudar isso a qualquer momento.", "Se estiver desativado, as mensagens só podem ser vistas e enviadas pelo próprio Instagram."],
+    links: [{ label: "Ajuda oficial do Instagram", url: "https://help.instagram.com/791161338412168/?locale=pt_BR" }],
+    needsValidation: ["O nome exato dos menus pode variar conforme a versão do app e o aparelho (a própria Central de Ajuda cita “Controles de mensagens” no iPad). Conferir no aparelho da conta de teste."],
   },
 };
 

@@ -33,10 +33,10 @@ export const OUTCOMES: Record<Outcome, OutcomeInfo> = {
   cancelled: { tone: "warn", title: "Conexão cancelada", body: "Você saiu antes de concluir. Nenhuma conta foi conectada e nada foi alterado.", guides: [], retry: true, help: false },
   expired: { tone: "bad", title: "O pedido expirou", body: "Por segurança, o pedido de conexão vale por 10 minutos e só pode ser usado uma vez. Comece de novo.", guides: [], retry: true, help: false },
   forbidden: { tone: "bad", title: "Sem permissão para conectar", body: "Só proprietários e administradores da organização podem conectar contas.", guides: [], retry: false, help: true },
-  insufficient_permissions: { tone: "bad", title: "Faltaram permissões", body: "Na tela da Meta, mantenha marcadas todas as permissões pedidas (comentários, mensagens e informações básicas). Sem elas o DaBiChat não consegue responder.", guides: [], retry: true, help: true },
+  insufficient_permissions: { tone: "bad", title: "Faltaram permissões", body: "Na tela da Meta, mantenha marcadas todas as permissões pedidas (comentários, mensagens e informações básicas). Sem elas o DaBiChat não consegue responder.", guides: ["messages-access"], retry: true, help: true },
   no_accounts: { tone: "warn", title: "Não encontramos nenhuma conta do Instagram", body: "Na tela da Meta, escolha o portfólio que contém o seu Instagram. Se ele não aparecer, a conta provavelmente ainda não está no portfólio.", guides: ["portfolio-find", "instagram-in-portfolio", "professional"], retry: true, help: true },
   unavailable: { tone: "bad", title: "Serviço indisponível", body: "Não foi possível concluir agora. Tente novamente em instantes.", guides: [], retry: true, help: true },
-  error: { tone: "bad", title: "Não foi possível conectar", body: "Algo deu errado do lado da conexão. Confira os requisitos e tente de novo. Se continuar, fale com a nossa equipe.", guides: ["professional", "portfolio-find", "instagram-in-portfolio"], retry: true, help: true },
+  error: { tone: "bad", title: "Não foi possível conectar", body: "Algo deu errado do lado da conexão. Confira os requisitos e tente de novo. Se continuar, fale com a nossa equipe.", guides: ["professional", "portfolio-find", "instagram-in-portfolio", "messages-access"], retry: true, help: true },
 };
 
 export const isOutcome = (v: unknown): v is Outcome => typeof v === "string" && v in OUTCOMES;

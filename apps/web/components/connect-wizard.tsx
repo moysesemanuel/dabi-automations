@@ -15,10 +15,10 @@ const STEPS: { key: OnboardingStep; label: string }[] = [
 ];
 const ANSWERS: { value: OnboardingAnswer; label: string }[] = [{ value: "YES", label: "Sim" }, { value: "NO", label: "Não" }, { value: "UNSURE", label: "Não sei" }];
 
-function GuideCard({ id }: { id: GuideId }) {
+function GuideCard({ id, open = true }: { id: GuideId; open?: boolean }) {
   const g = GUIDES[id];
   return (
-    <details className="guide" open>
+    <details className="guide" open={open}>
       <summary>{g.title}</summary>
       <p className="muted">{g.intro}</p>
       <ol>{g.steps.map((s) => <li key={s}>{s}</li>)}</ol>
@@ -90,6 +90,7 @@ export function ConnectWizard({ orgId, initial, initialStep, outcome, save, conn
             <li>Escolha a <strong>conta do Instagram</strong> que quer conectar.</li>
             <li>Revise as permissões e mantenha todas marcadas (comentários, mensagens e informações básicas). Se aparecer a opção de permitir acesso às mensagens, deixe ativada.</li>
           </ol>
+          <GuideCard id="messages-access" open={false} />
           <div className="row"><ConnectInstagram action={connect} label="Conectar com a Meta" /><button className="btn" type="button" onClick={() => go("PREPARE")}>Voltar</button>{help}</div>
           <p className="muted">Se a Meta não mostrar o seu portfólio ou a sua conta, volte e confira a preparação.</p>
         </section>

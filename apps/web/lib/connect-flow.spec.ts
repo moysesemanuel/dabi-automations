@@ -14,8 +14,10 @@ describe("guias", () => {
       }
     }
   });
-  it("tudo que não foi confirmado na fonte oficial está marcado para validação", () => {
+  it("tudo que não foi confirmado integralmente na fonte oficial continua marcado para validação", () => {
     expect(GUIDES["portfolio-find"].needsValidation?.length).toBeGreaterThan(0);
+    expect(GUIDES["messages-access"].needsValidation?.length).toBeGreaterThan(0);
+    expect(GUIDES.professional.needsValidation).toBeUndefined(); // confirmado na página oficial
   });
 });
 
@@ -46,6 +48,7 @@ describe("fluxo", () => {
   it("todos os resultados da API têm mensagem; falhas oferecem nova tentativa ou ajuda", () => {
     for (const o of ["connected", "partial", "already_connected", "other_organization", "cancelled", "expired", "forbidden", "insufficient_permissions", "no_accounts", "error"]) expect(isOutcome(o)).toBe(true);
     expect(OUTCOMES.no_accounts.guides).toContain("instagram-in-portfolio");
+    expect(OUTCOMES.insufficient_permissions.guides).toContain("messages-access");
     expect(OUTCOMES.cancelled.retry).toBe(true);
     expect(OUTCOMES.connected.retry).toBe(false);
   });
