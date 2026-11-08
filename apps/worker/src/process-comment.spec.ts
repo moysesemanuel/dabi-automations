@@ -143,6 +143,21 @@ describe("credencial inválida (erro 190)", () => {
   });
 });
 
+describe("eventos ignorados ficam associados à conta", () => {
+  it("sem automação correspondente: IGNORED com a conta e a organização gravadas, sem entrega nem chamada à Meta", async () => {
+    const t = setup(); t.route(isoAgo(H), ok);
+    await processCommentEvent(t.deps, job({ text: "nada a ver com a palavra-chave" }));
+    expect(t.events.ev1).toMatchObject({ status: "IGNORED", socialAccountId: "acc1", organizationId: "org1" });
+    expect(t.deliveries).toHaveLength(0);
+    expect(t.calls).toHaveLength(0);
+  });
+  it("comentário da própria conta: IGNORED com a conta associada", async () => {
+    const t = setup();
+    await processCommentEvent(t.deps, job({ fromId: "ig1" }));
+    expect(t.events.ev1).toMatchObject({ status: "IGNORED", error: "comentário da própria conta", socialAccountId: "acc1" });
+  });
+});
+
 describe("processCommentEvent", () => {
   it("envio desabilitado: nenhuma chamada à Meta, entrega HELD e evento RECEIVED", async () => {
     const t = setup({ sendEnabled: false });

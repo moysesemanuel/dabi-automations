@@ -19,6 +19,18 @@ function setup(existing?: { id: string; status: string }, queueFails = false) {
   return { svc: svc as WebhooksService, added, store };
 }
 
+describe("WebhooksService.ingest: deduplicação visível", () => {
+  it("evento já tratado: não reenfileira e registra no log (sem texto do comentário)", async () => {
+    const { svc, added } = setup({ id: "ev1", status: "IGNORED" });
+    const logs: string[] = [];
+    (svc as any).logger = { debug: () => {}, log: (m: string) => logs.push(m), warn: () => {} };
+    await svc.ingest(body("c1"));
+    expect(added).toHaveLength(0);
+    expect(logs.join(" ")).toMatch(/duplicado ignorado por deduplicação \(comment:c1, estado atual=IGNORED\)/);
+    expect(logs.join(" ")).not.toContain("LINK"); // texto do comentário nunca vai ao log
+  });
+});
+
 describe("WebhooksService.ingest: formatos do payload", () => {
   const unified = (cid: string) => ({ object: "instagram", entry: [{ id: "ig1", changes: [{ field: "comments", value: { comment_id: cid, text: "LINK", media: { id: "m1" }, from: { id: "u9" } } }] }] });
   it("Unified Login: usa value.comment_id (e o jobId/evento seguem esse id)", async () => {

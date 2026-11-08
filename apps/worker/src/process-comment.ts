@@ -110,19 +110,21 @@ export async function processCommentEvent(deps: Deps, raw: unknown) {
   if (!account) return setEvent({ status: "IGNORED", error: "conta desconhecida" });
 
   // Comentário da própria conta profissional (inclusive nossas respostas): nunca responder.
-  if (data.fromId && data.fromId === account.providerAccountId) return setEvent({ status: "IGNORED", error: "comentário da própria conta" });
+  // Eventos ignorados também ficam associados à conta/organização (diagnóstico: de qual conta veio o webhook).
+  const owner = { organizationId: account.organizationId, socialAccountId: account.id };
+  if (data.fromId && data.fromId === account.providerAccountId) return setEvent({ status: "IGNORED", error: "comentário da própria conta", ...owner });
 
   const automations = await prisma.automation.findMany({
     where: { socialAccountId: account.id, status: "ACTIVE", media: { providerMediaId: data.mediaId } },
   });
   const text = normalizeKeyword(data.text);
   const match = automations.find((a: any) => text.includes(normalizeKeyword(a.keyword)));
-  if (!match) return setEvent({ status: "IGNORED" });
+  if (!match) return setEvent({ status: "IGNORED", ...owner });
   if (match.organizationId !== account.organizationId) return setEvent({ status: "FAILED", error: "organização da automação difere da conta" });
 
   const dmOn = match.dmEnabled !== false;
   const pubOn = match.publicReplyEnabled === true;
-  if (!dmOn && !pubOn) return setEvent({ status: "IGNORED", error: "nenhuma ação habilitada na automação" });
+  if (!dmOn && !pubOn) return setEvent({ status: "IGNORED", error: "nenhuma ação habilitada na automação", ...owner });
 
   const ctx: Ctx = { deps, data, account, match, setEvent };
 

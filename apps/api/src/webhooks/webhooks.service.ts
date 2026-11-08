@@ -45,7 +45,13 @@ export class WebhooksService {
         // Já tratado (PROCESSED/IGNORED/FAILED): não reenfileira.
         // Ainda RECEIVED: a tentativa anterior pode ter falhado ao enfileirar, então tenta de novo.
         // O jobId determinístico impede job duplicado no BullMQ.
-        if (!ev || ev.status !== "RECEIVED") continue;
+        if (!ev) continue;
+        if (ev.status !== "RECEIVED") {
+          // Descarte por deduplicação: visível no log (só id do comentário e estado; nunca texto, token ou dados pessoais).
+          // O payload de exemplo do botão "Testar" da Meta usa sempre o mesmo id, então cai aqui.
+          this.logger.log(`evento duplicado ignorado por deduplicação (comment:${commentId}, estado atual=${ev.status})`);
+          continue;
+        }
 
         await this.queue.add("comment", {
           eventId: ev.id,
