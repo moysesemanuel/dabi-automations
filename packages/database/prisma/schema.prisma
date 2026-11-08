@@ -20,6 +20,13 @@ enum OnboardingStep {
   RESULT
 }
 
+// Estado da assinatura de webhooks de comentários da conta (registrado por nós; a Meta não oferece consulta documentada).
+enum WebhookSubscription {
+  UNKNOWN
+  SUBSCRIBED
+  FAILED
+}
+
 enum Role {
   OWNER
   ADMIN
@@ -141,13 +148,17 @@ model ConnectionOnboarding {
 }
 
 model SocialAccount {
-  id                String       @id @default(cuid())
-  organizationId    String
-  provider          Provider     @default(INSTAGRAM)
-  providerAccountId String // IG user id
-  username          String
-  createdAt         DateTime     @default(now())
-  organization      Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  id                  String              @id @default(cuid())
+  organizationId      String
+  provider            Provider            @default(INSTAGRAM)
+  providerAccountId   String // IG user id
+  username            String
+  createdAt           DateTime            @default(now())
+  // Assinatura de webhooks (POST /subscribed_apps). UNKNOWN = nunca registrada por este sistema.
+  webhookStatus       WebhookSubscription @default(UNKNOWN)
+  webhookSubscribedAt DateTime?
+  webhookError        String? // mensagem segura (sem token)
+  organization        Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   credential  SocialCredential?
   media       Media[]

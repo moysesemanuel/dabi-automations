@@ -29,6 +29,8 @@ const schema = z.object({
   INSTAGRAM_PUBLIC_REPLY_ENABLED: z.enum(["true", "false"]).default("false"),
   // Retomada de entregas PENDING antigas (exige também INSTAGRAM_SEND_ENABLED=true). Desligada por padrão.
   INSTAGRAM_RESUME_PENDING_ENABLED: z.enum(["true", "false"]).default("false"),
+  // Assinatura de webhooks por conta: vazio = desligado; "*" = qualquer conta; ou lista de IDs do Instagram separados por vírgula.
+  INSTAGRAM_WEBHOOK_SUBSCRIBE_ACCOUNTS: z.string().default(""),
   ALLOW_REGISTRATION: z.enum(["true", "false"]).default("false"),
 });
 export type Env = z.infer<typeof schema>;

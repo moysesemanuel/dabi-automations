@@ -6,6 +6,7 @@ export interface Profile { id: string; email: string; name: string | null }
 
 export interface Account {
   id: string; username: string; providerAccountId: string; createdAt: string; mediaCount: number; automationCount: number;
+  webhookStatus: "UNKNOWN" | "SUBSCRIBED" | "FAILED"; webhookSubscribedAt: string | null; webhookError: string | null;
   credential: { connected: false } | { connected: true; loginMode: "INSTAGRAM" | "FACEBOOK"; expiresAt: string | null; scopes: string[]; updatedAt: string };
 }
 

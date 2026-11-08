@@ -1,7 +1,9 @@
 export type LoginMode = "INSTAGRAM" | "FACEBOOK";
 
 /** Erro "de negócio" ao falar com a Meta. A mensagem nunca contém o token. */
-export class MetaApiError extends Error {}
+export class MetaApiError extends Error {
+  constructor(message: string, readonly meta?: { http?: number; code?: number; subcode?: number }) { super(message); }
+}
 
 /** FACEBOOK => graph.facebook.com | INSTAGRAM => graph.instagram.com */
 export const graphHost = (mode: LoginMode) =>
@@ -21,7 +23,7 @@ export async function graphGetJson(url: string, secrets: string | string[], fetc
     for (const sec of [secrets].flat()) if (sec) raw = raw.split(sec).join("[oculto]");
     raw = raw.slice(0, 200);
     const code = body?.error?.code != null ? `, código ${body.error.code}` : "";
-    throw new MetaApiError(`Meta rejeitou a requisição (HTTP ${res.status}${code}): ${raw}`);
+    throw new MetaApiError(`Meta rejeitou a requisição (HTTP ${res.status}${code}): ${raw}`, { http: res.status, code: body?.error?.code != null ? Number(body.error.code) : undefined, subcode: body?.error?.error_subcode != null ? Number(body.error.error_subcode) : undefined });
   }
   return body;
 }

@@ -5,6 +5,8 @@ import { formatDate } from "@/lib/format";
 import { roleIn } from "@/lib/org";
 import { canWrite } from "@/lib/types";
 import Link from "next/link";
+import { ActivateComments } from "@/components/activate-comments";
+import { activateComments } from "./actions";
 
 export const metadata: Metadata = { title: "Contas" };
 const DAY = 86_400_000;
@@ -37,6 +39,7 @@ export default async function AccountsPage({ params, searchParams }: { params: P
   const { ig } = await searchParams;
   const flash = ig ? IG_MESSAGES[ig] : undefined;
   const role = await roleIn(orgId);
+  const writable = canWrite(role);
   const accounts = await apiGet<Account[]>(`/orgs/${orgId}/accounts`);
   return (
     <>
@@ -51,7 +54,7 @@ export default async function AccountsPage({ params, searchParams }: { params: P
         <div className="table-wrap" tabIndex={0} role="region" aria-labelledby="accounts-caption">
           <table>
             <caption id="accounts-caption" className="sr-only">Contas conectadas</caption>
-            <thead><tr><th>Conta</th><th>Conexão</th><th>Publicações</th><th>Automações</th></tr></thead>
+            <thead><tr><th>Conta</th><th>Conexão</th><th>Comentários</th><th>Publicações</th><th>Automações</th></tr></thead>
             <tbody>
               {accounts.map((a) => {
                 const t = tokenState(a.credential);
@@ -62,6 +65,12 @@ export default async function AccountsPage({ params, searchParams }: { params: P
                       <span className={`badge ${t.cls}`}>{t.label}</span>
                       <div className="cell-sub">{t.detail}</div>
                       {a.credential.connected && <div className="cell-sub">Acesso via {a.credential.loginMode === "FACEBOOK" ? "Facebook" : "Instagram"}</div>}
+                    </td>
+                    <td data-label="Comentários">
+                      {a.webhookStatus === "SUBSCRIBED" ? (<><span className="badge ok">Ativo</span>{a.webhookSubscribedAt && <div className="cell-sub">desde {formatDate(a.webhookSubscribedAt)}</div>}</>)
+                        : a.webhookStatus === "FAILED" ? (<><span className="badge bad">Falhou</span><div className="cell-sub">{a.webhookError}</div></>)
+                        : <><span className="badge">Não ativado</span><div className="cell-sub">Sem isto, os comentários não chegam ao DaBiChat.</div></>}
+                      {writable && a.webhookStatus !== "SUBSCRIBED" && a.credential.connected && <ActivateComments action={activateComments.bind(null, orgId, a.id)} username={a.username} retry={a.webhookStatus === "FAILED"} />}
                     </td>
                     <td data-label="Publicações">{a.mediaCount}</td>
                     <td data-label="Automações">{a.automationCount}</td>

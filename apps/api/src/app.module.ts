@@ -11,6 +11,7 @@ import { InstagramAccountsService } from "./instagram/instagram-accounts.service
 import { InstagramOAuthController, InstagramOAuthService } from "./instagram/instagram-oauth.controller";
 import { ConnectionOnboardingController } from "./onboarding/connection-onboarding.controller";
 import { ConnectionOnboardingService } from "./onboarding/connection-onboarding.service";
+import { AccountActionsController, AccountActionsService } from "./instagram/account-actions.controller";
 import { AutomationsController } from "./automations/automations.controller";
 import { AutomationsService } from "./automations/automations.service";
 import { MediaController } from "./media/media.controller";
@@ -26,7 +27,7 @@ import { WebhooksService } from "./webhooks/webhooks.service";
 
 @Module({
   imports: [PrismaModule, JwtModule.register({})],
-  controllers: [HealthController, WebhooksController, AuthController, OrgsController, MediaController, AutomationsController, DashboardController, TeamController, InvitationsController, InstagramOAuthController, ConnectionOnboardingController],
-  providers: [WebhooksService, AuthService, LoginThrottle, AuditService, OrgGuard, InstagramAccountsService, MediaService, AutomationsService, DashboardService, TeamService, InvitationsService, InstagramOAuthService, ConnectionOnboardingService],
+  controllers: [HealthController, WebhooksController, AuthController, OrgsController, MediaController, AutomationsController, DashboardController, TeamController, InvitationsController, InstagramOAuthController, ConnectionOnboardingController, AccountActionsController],
+  providers: [WebhooksService, AuthService, LoginThrottle, AuditService, OrgGuard, InstagramAccountsService, MediaService, AutomationsService, DashboardService, TeamService, InvitationsService, InstagramOAuthService, ConnectionOnboardingService, AccountActionsService],
 })
 export class AppModule {}

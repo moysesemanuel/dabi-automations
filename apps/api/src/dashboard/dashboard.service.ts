@@ -24,7 +24,7 @@ export class DashboardService {
       where: { organizationId },
       orderBy: { createdAt: "asc" },
       select: {
-        id: true, username: true, providerAccountId: true, createdAt: true,
+        id: true, username: true, providerAccountId: true, createdAt: true, webhookStatus: true, webhookSubscribedAt: true, webhookError: true,
         credential: { select: { loginMode: true, expiresAt: true, scopes: true, updatedAt: true } },
         _count: { select: { media: true, automations: true } },
       },

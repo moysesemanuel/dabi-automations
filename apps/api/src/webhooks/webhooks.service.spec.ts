@@ -19,6 +19,33 @@ function setup(existing?: { id: string; status: string }, queueFails = false) {
   return { svc: svc as WebhooksService, added, store };
 }
 
+describe("WebhooksService.ingest: formatos do payload", () => {
+  const unified = (cid: string) => ({ object: "instagram", entry: [{ id: "ig1", changes: [{ field: "comments", value: { comment_id: cid, text: "LINK", media: { id: "m1" }, from: { id: "u9" } } }] }] });
+  it("Unified Login: usa value.comment_id (e o jobId/evento seguem esse id)", async () => {
+    const { svc, added, store } = setup();
+    await svc.ingest(unified("c77"));
+    expect(added).toHaveLength(1);
+    expect(added[0][1]).toMatchObject({ commentId: "c77", igAccountId: "ig1", mediaId: "m1", fromId: "u9" });
+    expect(added[0][2].jobId).toBe("comment-c77");
+    expect(store["comment:c77"]).toBeTruthy();
+  });
+  it("formato anterior (@dabitech.br): continua usando value.id", async () => {
+    const { svc, added } = setup();
+    await svc.ingest(body("c55"));
+    expect(added[0][1]).toMatchObject({ commentId: "c55" });
+  });
+  it("se vierem os dois, prevalece comment_id", async () => {
+    const { svc, added } = setup();
+    await svc.ingest({ entry: [{ id: "ig1", changes: [{ field: "comments", value: { id: "velho", comment_id: "novo", text: "x", media: { id: "m1" } } }] }] });
+    expect(added[0][1].commentId).toBe("novo");
+  });
+  it("sem nenhum id de comentário: ignora sem erro", async () => {
+    const { svc, added } = setup();
+    await svc.ingest({ entry: [{ id: "ig1", changes: [{ field: "comments", value: { text: "x" } }] }] });
+    expect(added).toHaveLength(0);
+  });
+});
+
 describe("WebhooksService.ingest", () => {
   it("jobId não contém ':' (limitação do BullMQ)", () => expect(commentJobId("123")).not.toContain(":"));
 

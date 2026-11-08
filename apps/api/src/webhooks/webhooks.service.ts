@@ -26,9 +26,11 @@ export class WebhooksService {
 
     for (const entry of body?.entry ?? []) {
       for (const change of entry.changes ?? []) {
-        if (change.field !== "comments" || !change.value?.id) continue;
+        // Unified Login envia o id em value.comment_id; o formato anterior (Instagram Login), em value.id.
+        const commentId = change.value?.comment_id ?? change.value?.id;
+        if (change.field !== "comments" || !commentId) continue;
         const v = change.value;
-        const key = `comment:${v.id}`;
+        const key = `comment:${commentId}`;
 
         // unique em providerEventKey => reenvio do webhook não duplica o registro
         let ev = await this.prisma.automationEvent.findUnique({ where: { providerEventKey: key } });
@@ -48,11 +50,11 @@ export class WebhooksService {
         await this.queue.add("comment", {
           eventId: ev.id,
           igAccountId: String(entry.id),
-          commentId: String(v.id),
+          commentId: String(commentId),
           mediaId: String(v.media?.id ?? ""),
           text: String(v.text ?? ""),
           fromId: v.from?.id ? String(v.from.id) : undefined,
-        }, { jobId: commentJobId(String(v.id)), attempts: 3, backoff: { type: "exponential", delay: 2000 } });
+        }, { jobId: commentJobId(String(commentId)), attempts: 3, backoff: { type: "exponential", delay: 2000 } });
       }
     }
   }
