@@ -90,7 +90,8 @@ export async function startInstagramOAuth(deps: OAuthDeps, input: { userId: stri
     // Sem onde guardar o state não há como validar o retorno: não inicia o fluxo.
     throw new OAuthError("store_unavailable", "Serviço temporariamente indisponível. Tente novamente.");
   }
-  const q = new URLSearchParams({ client_id: env.appId, config_id: env.configId, redirect_uri: env.redirectUri, response_type: "code", state });
+  // override_default_response_type: a URL gerada pelo painel da Meta o inclui; garante `code` mesmo que a configuração tenha outro tipo padrão.
+  const q = new URLSearchParams({ client_id: env.appId, config_id: env.configId, redirect_uri: env.redirectUri, response_type: "code", override_default_response_type: "true", state });
   return { url: `https://www.facebook.com/dialog/oauth?${q}` };
 }
 
@@ -118,7 +119,8 @@ export async function completeInstagramOAuth(deps: OAuthDeps, input: CompleteInp
   let token: string;
   let expiresAt: Date | null = null;
   try {
-    const q = new URLSearchParams({ client_id: env.appId, client_secret: env.appSecret, redirect_uri: env.redirectUri, code: input.code });
+    // override_default_response_type: a URL gerada pelo painel da Meta o inclui; garante `code` mesmo que a configuração tenha outro tipo padrão.
+  const q = new URLSearchParams({ client_id: env.appId, client_secret: env.appSecret, redirect_uri: env.redirectUri, code: input.code });
     const body = await graphGetJson(`https://graph.facebook.com/${v}/oauth/access_token?${q}`, secrets, deps.fetchImpl);
     if (typeof body?.access_token !== "string" || !body.access_token) return fail("error", orgId);
     token = body.access_token;

@@ -69,6 +69,7 @@ describe("startInstagramOAuth", () => {
     expect(u.searchParams.get("config_id")).toBe("1819418769102692");
     expect(u.searchParams.get("redirect_uri")).toBe(env.redirectUri);
     expect(u.searchParams.get("response_type")).toBe("code");
+    expect(u.searchParams.get("override_default_response_type")).toBe("true");
     expect(u.searchParams.get("state")!.length).toBeGreaterThanOrEqual(43);
     expect(url).not.toContain(SECRET);
     const a = await s.begin(), b = await s.begin();
@@ -85,6 +86,18 @@ describe("startInstagramOAuth", () => {
     const s = setup();
     s.deps.store = { put: async () => { throw new Error("redis"); }, take: async () => null };
     await expect(startInstagramOAuth(s.deps, { userId: "u1", organizationId: "org1" })).rejects.toBeInstanceOf(OAuthError);
+  });
+});
+
+describe("redirect_uri", () => {
+  it("é idêntico, byte a byte, ao cadastrado na Meta na autorização e na troca do code", async () => {
+    const REGISTRADO = "https://dev.example.com/instagram/callback";
+    const s = setup();
+    const state = await s.begin();
+    const { url } = await startInstagramOAuth(s.deps, { userId: "u1", organizationId: "org1" });
+    expect(new URL(url).searchParams.get("redirect_uri")).toBe(REGISTRADO);
+    await completeInstagramOAuth(s.deps, { userId: "u1", state, code: CODE });
+    expect(new URL(s.calls[0]).searchParams.get("redirect_uri")).toBe(REGISTRADO);
   });
 });
 
