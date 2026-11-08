@@ -19,3 +19,10 @@ export async function activateComments(orgId: string, accountId: string, _prev?:
   revalidatePath(`/o/${orgId}/contas`);
   return r.data.status === "SUBSCRIBED" ? {} : { error: r.data.error ?? "Não foi possível ativar. Tente novamente." };
 }
+
+/** Leva ao Unified Login da Meta para reconectar UMA conta (token revogado ou inválido). Só o administrador, e só com confirmação na Meta. */
+export async function reconnectInstagram(orgId: string, accountId: string, _prev?: ConnectState): Promise<ConnectState> {
+  const r = await api<{ url: string }>(`/orgs/${encodeURIComponent(orgId)}/accounts/${encodeURIComponent(accountId)}/reconnect`, { method: "POST" });
+  if (!r.ok) return { error: r.status === 503 ? "A conexão com o Instagram ainda não está disponível neste ambiente." : r.message };
+  redirect(r.data.url);
+}

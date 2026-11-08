@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from "@nestjs/common";
 import { decryptToken, loadEnv } from "@dabi/config";
 import { PrismaService } from "../prisma/prisma.module";
 import { AuditService } from "../audit/audit.service";
+import { isInvalidTokenError, markNeedsReconnect } from "../instagram/credential-status";
 import { graphGetJson, graphHost, type LoginMode } from "../instagram/graph";
 
 const MAX_PAGES = 4; // até ~200 publicações por sincronização
@@ -32,7 +33,13 @@ export class MediaService {
 
     let synced = 0;
     for (let page = 0; url && page < MAX_PAGES; page++) {
-      const body = await graphGetJson(url, token, this.fetchImpl);
+      let body: any;
+      try {
+        body = await graphGetJson(url, token, this.fetchImpl);
+      } catch (e) {
+        if (isInvalidTokenError(e)) await markNeedsReconnect(this.prisma, { socialAccountId: account.id, encryptedToken: c.encryptedToken });
+        throw e;
+      }
       for (const m of body.data ?? []) {
         await this.prisma.media.upsert({
           where: { socialAccountId_providerMediaId: { socialAccountId: account.id, providerMediaId: String(m.id) } },

@@ -6,13 +6,16 @@ import { roleIn } from "@/lib/org";
 import { canWrite } from "@/lib/types";
 import Link from "next/link";
 import { ActivateComments } from "@/components/activate-comments";
-import { activateComments } from "./actions";
+import { ConnectInstagram } from "@/components/connect-instagram";
+import { activateComments, reconnectInstagram } from "./actions";
 
 export const metadata: Metadata = { title: "Contas" };
 const DAY = 86_400_000;
 
 const IG_MESSAGES: Record<string, { cls: "ok" | "warn" | "bad"; text: string }> = {
   connected: { cls: "ok", text: "Conta conectada com sucesso." },
+  reconnected: { cls: "ok", text: "Conta reconectada com sucesso. As entregas retidas continuam retidas até você liberar o envio." },
+  reconnect_mismatch: { cls: "bad", text: "A conta autorizada na Meta não é a que você quis reconectar. Escolha a mesma conta e tente de novo." },
   partial: { cls: "warn", text: "Algumas contas foram conectadas; outras já estavam conectadas ou pertencem a outra organização." },
   already_connected: { cls: "warn", text: "Essa conta já estava conectada. Nada foi alterado." },
   other_organization: { cls: "bad", text: "Essa conta do Instagram já está conectada a outra organização." },
@@ -27,6 +30,7 @@ const IG_MESSAGES: Record<string, { cls: "ok" | "warn" | "bad"; text: string }> 
 
 function tokenState(c: Account["credential"]): { label: string; cls: string; detail: string } {
   if (!c.connected) return { label: "Sem credencial", cls: "bad", detail: "A conta precisa ser reconectada pela equipe técnica." };
+  if (c.status === "NEEDS_RECONNECT") return { label: "Precisa reconectar", cls: "bad", detail: "A Meta recusou o acesso desta conta (credencial revogada ou inválida). Enquanto isso, nenhuma mensagem é enviada por ela." };
   if (!c.expiresAt) return { label: "Conectada", cls: "ok", detail: "Sem data de expiração informada." };
   const left = new Date(c.expiresAt).getTime() - Date.now();
   if (left <= 0) return { label: "Expirada", cls: "bad", detail: `Expirou em ${formatDate(c.expiresAt)}. Reconecte a conta.` };
@@ -64,13 +68,14 @@ export default async function AccountsPage({ params, searchParams }: { params: P
                     <td data-label="Conexão">
                       <span className={`badge ${t.cls}`}>{t.label}</span>
                       <div className="cell-sub">{t.detail}</div>
+                      {a.credential.connected && a.credential.status === "NEEDS_RECONNECT" && writable && <ConnectInstagram small action={reconnectInstagram.bind(null, orgId, a.id)} label="Reconectar" ariaLabel={`Reconectar @${a.username}`} />}
                       {a.credential.connected && <div className="cell-sub">Acesso via {a.credential.loginMode === "FACEBOOK" ? "Facebook" : "Instagram"}</div>}
                     </td>
                     <td data-label="Comentários">
                       {a.webhookStatus === "SUBSCRIBED" ? (<><span className="badge ok">Ativo</span>{a.webhookSubscribedAt && <div className="cell-sub">desde {formatDate(a.webhookSubscribedAt)}</div>}</>)
                         : a.webhookStatus === "FAILED" ? (<><span className="badge bad">Falhou</span><div className="cell-sub">{a.webhookError}</div></>)
                         : <><span className="badge">Não ativado</span><div className="cell-sub">Sem isto, os comentários não chegam ao DaBiChat.</div></>}
-                      {writable && a.webhookStatus !== "SUBSCRIBED" && a.credential.connected && <ActivateComments action={activateComments.bind(null, orgId, a.id)} username={a.username} retry={a.webhookStatus === "FAILED"} />}
+                      {writable && a.webhookStatus !== "SUBSCRIBED" && a.credential.connected && a.credential.status !== "NEEDS_RECONNECT" && <ActivateComments action={activateComments.bind(null, orgId, a.id)} username={a.username} retry={a.webhookStatus === "FAILED"} />}
                     </td>
                     <td data-label="Publicações">{a.mediaCount}</td>
                     <td data-label="Automações">{a.automationCount}</td>

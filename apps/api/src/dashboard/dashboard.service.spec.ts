@@ -19,12 +19,13 @@ function setup() {
     },
   });
   const accounts = [
-    { id: "s1", organizationId: "A", username: "dabitech.br", providerAccountId: "ig1", createdAt: new Date(), credential: { loginMode: "FACEBOOK", expiresAt: null, scopes: ["x"], updatedAt: new Date(), encryptedToken: "NUNCA" }, _count: { media: 20, automations: 1 } },
+    { id: "s1", organizationId: "A", username: "dabitech.br", providerAccountId: "ig1", createdAt: new Date(), credential: { loginMode: "FACEBOOK", expiresAt: null, scopes: ["x"], updatedAt: new Date(), status: "NEEDS_RECONNECT", statusReason: "motivo", statusChangedAt: new Date(), encryptedToken: "NUNCA" }, _count: { media: 20, automations: 1 } },
     { id: "s2", organizationId: "B", username: "outra", providerAccountId: "ig2", createdAt: new Date(), credential: null, _count: { media: 0, automations: 0 } },
   ];
   const prisma: any = {
     messageDelivery: model(deliveries), publicReply: model([]),
     socialAccount: { ...model(accounts), findMany: async ({ where }: any) => accounts.filter((r) => match(r, where)), count: async ({ where }: any) => accounts.filter((r) => match(r, where)).length },
+    socialCredential: { count: async ({ where }: any) => accounts.filter((a) => a.credential && (a.credential as any).status === where.status && a.organizationId === where.socialAccount.organizationId).length },
     media: model([{ organizationId: "A", status: "x" }]), automation: model([{ organizationId: "A", status: "ACTIVE" }, { organizationId: "A", status: "PAUSED" }, { organizationId: "B", status: "ACTIVE" }]),
   };
   return new DashboardService(prisma);
@@ -68,8 +69,17 @@ describe("DashboardService", () => {
     expect(a[0]).toMatchObject({ username: "dabitech.br", mediaCount: 20, credential: { connected: true, loginMode: "FACEBOOK" } });
     expect((await setup().accounts("B"))[0].credential).toEqual({ connected: false });
   });
+  it("visão geral: contas a reconectar contadas só na própria organização", async () => {
+    expect((await setup().overview("A")).needsReconnect).toBe(1);
+    expect((await setup().overview("B")).needsReconnect).toBe(0);
+  });
+  it("lista de contas expõe o estado da credencial, nunca o token", async () => {
+    const [a] = await setup().accounts("A");
+    expect(a.credential).toMatchObject({ connected: true, status: "NEEDS_RECONNECT", statusReason: "motivo" });
+    expect(JSON.stringify(a)).not.toContain("NUNCA");
+  });
   it("visão geral conta por organização e por status", async () => {
     const o = await setup().overview("A");
-    expect(o).toMatchObject({ accounts: 1, automations: { active: 1, paused: 1 }, directMessages: { SENT: 1, FAILED: 1, PENDING: 0, HELD: 0, UNKNOWN: 0 } });
+    expect(o).toMatchObject({ accounts: 1, needsReconnect: 1, automations: { active: 1, paused: 1 }, directMessages: { SENT: 1, FAILED: 1, PENDING: 0, HELD: 0, UNKNOWN: 0 } });
   });
 });

@@ -21,6 +21,24 @@ export const DISABLED_NOTE = "envio desabilitado (INSTAGRAM_SEND_ENABLED=false)"
 /** Códigos de limite de taxa da Meta (além do HTTP 429). Rejeição = não enviou; só registramos à parte. */
 const RATE_LIMIT_CODES = new Set([4, 17, 32, 613]);
 
+/** Erro 190 da Meta: token inválido/revogado/expirado. A requisição foi REJEITADA (nada foi enviado). */
+const isInvalidToken = (err: any) => Number(err?.code) === 190;
+export const RECONNECT_NOTE = "credencial inválida ou revogada: reconecte a conta no DaBiChat";
+
+/**
+ * Marca SÓ a credencial desta conta como "precisa reconectar". O filtro pelo token usado evita sobrescrever
+ * uma reconexão que tenha acontecido enquanto a chamada estava em andamento. Idempotente.
+ */
+async function flagCredential(ctx: Ctx) {
+  const cred = ctx.account.credential;
+  if (!cred) return;
+  const now = ctx.deps.now ?? (() => new Date());
+  await ctx.deps.prisma.socialCredential.updateMany({
+    where: { socialAccountId: ctx.account.id, status: "ACTIVE", encryptedToken: cred.encryptedToken },
+    data: { status: "NEEDS_RECONNECT", statusReason: "A Meta recusou o token (código 190)", statusChangedAt: now() },
+  });
+}
+
 /** Falha transitória da consulta (rede/5xx): o job deve ser repetido, a entrega segue PENDING. */
 export class TransientError extends Error {}
 
@@ -122,6 +140,8 @@ export async function processCommentEvent(deps: Deps, raw: unknown) {
   if (pubOn && (!dmOn || dm?.status === "SENT")) {
     if (!env.publicReplyEnabled) {
       pubNote = "resposta pública desabilitada (INSTAGRAM_PUBLIC_REPLY_ENABLED=false)";
+    } else if (account.credential?.status === "NEEDS_RECONNECT") {
+      pubNote = `resposta pública não enviada: ${RECONNECT_NOTE}`;
     } else {
       const pr = await runPublicReply(ctx);
       if (pr.status !== "SENT") pubNote = `resposta pública ${pr.status}: ${pr.error}`;
@@ -180,6 +200,7 @@ async function runPublicReply(ctx: Ctx): Promise<{ status: Status; error: string
     return finish("UNKNOWN", "Meta respondeu 2xx sem id da resposta");
   }
   if (res.status >= 500) return finish("UNKNOWN", `Meta respondeu HTTP ${res.status}; resultado incerto`, { http: res.status });
+  if (isInvalidToken(body?.error)) { await flagCredential(ctx); return finish("FAILED", RECONNECT_NOTE, { http: res.status, code: 190 }); }
   const m = metaError(res, body?.error ?? {}, a.token);
   return finish("FAILED", m.error, m.response);
 }
@@ -241,6 +262,13 @@ async function runDm(ctx: Ctx): Promise<DmResult> {
     return stop(setEvent({ error: `entrega HELD: ${DISABLED_NOTE}` }));
   }
 
+  // Credencial já marcada para reconexão: não chama a Meta. Retém só as entregas desta conta.
+  const holdForReconnect = async (): Promise<DmResult> => {
+    await prisma.messageDelivery.update({ where: { id: delivery.id }, data: { status: "HELD", attempts: 0, error: RECONNECT_NOTE } });
+    return stop(setEvent({ error: `entrega HELD: ${RECONNECT_NOTE}` }));
+  };
+  if (account.credential?.status === "NEEDS_RECONNECT") return holdForReconnect();
+
   // PENDING com tentativa já registrada = processo caiu durante o envio: resultado ambíguo.
   if (delivery.attempts > 0) return finish("UNKNOWN", "processo interrompido durante o envio; resultado incerto");
 
@@ -257,6 +285,7 @@ async function runDm(ctx: Ctx): Promise<DmResult> {
     const res = await f(`${base}/${encodeURIComponent(data.commentId)}?fields=timestamp`, { headers: auth, signal: AbortSignal.timeout(10_000) });
     if (res.status >= 500 || res.status === 429) throw new TransientError(`consulta do comentário: HTTP ${res.status}`);
     const body: any = await res.json().catch(() => ({}));
+    if (!res.ok && isInvalidToken(body?.error)) { await flagCredential(ctx); return holdForReconnect(); }
     if (!res.ok) return finish("FAILED", `não foi possível confirmar a idade do comentário (HTTP ${res.status}, código ${body?.error?.code ?? "?"})`);
     createdAt = parseMetaTime(body?.timestamp);
   } catch (e) {
@@ -292,6 +321,8 @@ async function runDm(ctx: Ctx): Promise<DmResult> {
     return finish("UNKNOWN", "Meta respondeu 2xx sem message_id");
   }
   if (res.status >= 500) return finish("UNKNOWN", `Meta respondeu HTTP ${res.status}; resultado incerto`, { http: res.status });
+  // Token inválido/revogado (190): a Meta recusou, nada foi enviado. Retém (HELD, attempts=0) e pede reconexão.
+  if (isInvalidToken(body?.error)) { await flagCredential(ctx); return holdForReconnect(); }
   // Limite de taxa: a Meta recusou, então nada foi enviado; continua FAILED (sem retry automático),
   // mas sinalizado à parte para análise/reconciliação manual.
   const m = metaError(res, body?.error ?? {}, token);

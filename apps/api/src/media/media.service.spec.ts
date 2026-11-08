@@ -18,6 +18,7 @@ function setup(mode: "FACEBOOK" | "INSTAGRAM", pages: any[]) {
   const e = encryptToken(TOKEN, KEY);
   const upserts: any[] = [];
   const audits: any[] = [];
+  const marks: any[] = [];
   const prisma: any = {
     socialAccount: {
       findFirst: async ({ where }: any) =>
@@ -26,12 +27,13 @@ function setup(mode: "FACEBOOK" | "INSTAGRAM", pages: any[]) {
           : null,
     },
     media: { upsert: async (a: any) => { upserts.push(a); } },
+    socialCredential: { updateMany: async (a: any) => { marks.push(a); return { count: 1 }; } },
   };
   const urls: string[] = [];
   let i = 0;
   const svc = new MediaService(prisma, { log: async (x: any) => { audits.push(x); } } as any);
   svc.fetchImpl = (async (u: string) => { urls.push(u); return { ok: true, status: 200, json: async () => pages[i++] }; }) as any;
-  return { svc, upserts, urls, audits };
+  return { svc, upserts, urls, audits, marks };
 }
 
 describe("MediaService.sync", () => {
@@ -64,5 +66,23 @@ describe("MediaService.sync", () => {
     const { svc, audits } = setup("FACEBOOK", [{ data: [] }]);
     await svc.sync("orgA", "acc1", "u1");
     expect(JSON.stringify(audits)).not.toContain(TOKEN);
+  });
+});
+
+describe("MediaService.sync com token revogado", () => {
+  it("erro 190 da Meta marca a credencial para reconexão (só dessa conta) e propaga o erro", async () => {
+    const { svc, marks } = setup("FACEBOOK", []);
+    svc.fetchImpl = (async () => ({ ok: false, status: 400, json: async () => ({ error: { code: 190, message: `Token ${TOKEN} inválido` } }) })) as any;
+    await expect(svc.sync("orgA", "acc1", "u1")).rejects.toThrow(/código 190/);
+    expect(marks).toHaveLength(1);
+    expect(marks[0].where).toMatchObject({ socialAccountId: "acc1", status: "ACTIVE" });
+    expect(marks[0].data.status).toBe("NEEDS_RECONNECT");
+    expect(JSON.stringify(marks)).not.toContain(TOKEN);
+  });
+  it("outros erros (ex.: 100) não marcam a credencial", async () => {
+    const { svc, marks } = setup("FACEBOOK", []);
+    svc.fetchImpl = (async () => ({ ok: false, status: 400, json: async () => ({ error: { code: 100, message: "x" } }) })) as any;
+    await expect(svc.sync("orgA", "acc1", "u1")).rejects.toThrow();
+    expect(marks).toHaveLength(0);
   });
 });

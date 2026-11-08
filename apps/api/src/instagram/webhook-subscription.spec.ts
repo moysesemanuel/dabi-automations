@@ -13,6 +13,7 @@ function setup(o: { allowed?: string; res?: { status?: number; body?: any }; net
     { id: "acc2", organizationId: "orgB", providerAccountId: "99999", webhookStatus: "UNKNOWN", webhookSubscribedAt: null, webhookError: null, credential: { encryptedToken: enc.encrypted, tokenIv: enc.iv, tokenTag: enc.tag } },
   ];
   const audits: any[] = [];
+  const marks: any[] = [];
   const calls: { url: string; init: any }[] = [];
   const prisma: any = {
     socialAccount: {
@@ -20,6 +21,7 @@ function setup(o: { allowed?: string; res?: { status?: number; body?: any }; net
       updateMany: async ({ where, data }: any) => { const a = accounts.find((x) => x.id === where.id && x.organizationId === where.organizationId); if (a) Object.assign(a, data); return { count: a ? 1 : 0 }; },
     },
     auditLog: { create: async ({ data }: any) => { audits.push(data); } },
+    socialCredential: { updateMany: async (a: any) => { marks.push(a); return { count: 1 }; } },
   };
   const fetchImpl: any = async (url: string, init: any) => {
     calls.push({ url, init });
@@ -27,7 +29,7 @@ function setup(o: { allowed?: string; res?: { status?: number; body?: any }; net
     return { ok: (o.res?.status ?? 200) < 400, status: o.res?.status ?? 200, json: async () => o.res?.body ?? { success: true } };
   };
   const deps = { prisma, env: { tokenEncryptionKey: KEY, graphVersion: "v23.0", allowedAccounts: o.allowed ?? "17841" }, fetchImpl, now: () => new Date("2026-11-08T12:00:00Z") };
-  return { deps, accounts, audits, calls };
+  return { deps, accounts, audits, calls, marks };
 }
 const run = (s: ReturnType<typeof setup>, over: any = {}) => subscribeAccountWebhook(s.deps, { organizationId: "orgA", accountId: "acc1", actorUserId: "u1", ...over });
 
@@ -91,6 +93,15 @@ describe("subscribeAccountWebhook", () => {
     expect(JSON.stringify([r, s.accounts[0], s.audits])).not.toContain(TOKEN);
     expect(s.accounts[0].webhookStatus).toBe("FAILED");
     expect(s.audits[0].action).toBe("social_account.webhook_failed");
+  });
+
+  it("erro 190 na assinatura: marca a credencial para reconexão e orienta o usuário", async () => {
+    const s = setup({ res: { status: 400, body: { error: { code: 190, message: "Error validating access token" } } } });
+    const r = await run(s);
+    expect(r).toMatchObject({ status: "FAILED" });
+    expect(r.error).toMatch(/Reconecte/);
+    expect(s.marks).toHaveLength(1);
+    expect(s.marks[0].where.socialAccountId).toBe("acc1");
   });
 
   it("success diferente de true conta como falha; rede fora do ar também", async () => {

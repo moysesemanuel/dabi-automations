@@ -4,7 +4,7 @@ import { api } from "@/lib/api";
 // O retorno da Meta é sempre dinâmico e nunca pode ser cacheado.
 export const dynamic = "force-dynamic";
 
-const OUTCOMES = new Set(["connected", "partial", "already_connected", "other_organization", "cancelled", "expired", "forbidden", "insufficient_permissions", "no_accounts", "error"]);
+const OUTCOMES = new Set(["connected", "reconnected", "reconnect_mismatch", "partial", "already_connected", "other_organization", "cancelled", "expired", "forbidden", "insufficient_permissions", "no_accounts", "error"]);
 
 /** Redirecionamento relativo (sem depender do host/túnel); sem code/state na URL de destino. */
 const back = (to: string) => new Response(null, { status: 303, headers: { location: to, "cache-control": "no-store", "referrer-policy": "no-referrer" } });

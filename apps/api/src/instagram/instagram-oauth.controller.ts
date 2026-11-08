@@ -1,4 +1,4 @@
-import { Body, Controller, ForbiddenException, HttpCode, Injectable, Logger, Param, Post, Req, ServiceUnavailableException, UseGuards } from "@nestjs/common";
+import { Body, Controller, ForbiddenException, NotFoundException, HttpCode, Injectable, Logger, Param, Post, Req, ServiceUnavailableException, UseGuards } from "@nestjs/common";
 import { Redis } from "ioredis";
 import { loadEnv } from "@dabi/config";
 import { completeInstagramOAuthSchema, type CompleteInstagramOAuthDto } from "@dabi/contracts";
@@ -46,15 +46,16 @@ export class InstagramOAuthService {
     catch (e) {
       if (e instanceof OAuthError) {
         if (e.code === "forbidden") throw new ForbiddenException(e.message);
+        if (e.code === "not_found") throw new NotFoundException(e.message);
         throw new ServiceUnavailableException(e.message);
       }
       throw e;
     }
   }
 
-  start(userId: string, organizationId: string) {
+  start(userId: string, organizationId: string, reconnectAccountId?: string) {
     return this.guard(async () => {
-      const r = await this.provider.start(this.deps(), { userId, organizationId });
+      const r = await this.provider.start(this.deps(), { userId, organizationId, reconnectAccountId });
       await this.onboarding.markConnecting(organizationId, userId);
       return r;
     });

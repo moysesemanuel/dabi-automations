@@ -46,7 +46,7 @@ describe("fluxo", () => {
     expect(initialStep("PREPARE", "lixo")).toBe("PREPARE");
   });
   it("todos os resultados da API têm mensagem; falhas oferecem nova tentativa ou ajuda", () => {
-    for (const o of ["connected", "partial", "already_connected", "other_organization", "cancelled", "expired", "forbidden", "insufficient_permissions", "no_accounts", "error"]) expect(isOutcome(o)).toBe(true);
+    for (const o of ["connected", "reconnected", "reconnect_mismatch", "partial", "already_connected", "other_organization", "cancelled", "expired", "forbidden", "insufficient_permissions", "no_accounts", "error"]) expect(isOutcome(o)).toBe(true);
     expect(OUTCOMES.no_accounts.guides).toContain("instagram-in-portfolio");
     expect(OUTCOMES.insufficient_permissions.guides).toContain("messages-access");
     expect(OUTCOMES.cancelled.retry).toBe(true);

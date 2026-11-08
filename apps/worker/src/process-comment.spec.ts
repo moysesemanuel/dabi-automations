@@ -8,21 +8,32 @@ const NOW = new Date("2026-11-07T12:00:00Z");
 const isoAgo = (ms: number) => new Date(NOW.getTime() - ms).toISOString().replace("Z", "+0000");
 const H = 3600_000;
 
-function setup(opts: { publicEnabled?: boolean; auto?: Record<string, unknown>; sendEnabled?: boolean; resumeEnabled?: boolean; cred?: boolean; expired?: boolean; status?: string; orgMismatch?: boolean; existingDelivery?: any } = {}) {
+function setup(opts: { credStatus?: string; publicEnabled?: boolean; auto?: Record<string, unknown>; sendEnabled?: boolean; resumeEnabled?: boolean; cred?: boolean; expired?: boolean; status?: string; orgMismatch?: boolean; existingDelivery?: any } = {}) {
   const enc = encryptToken(TOKEN, KEY);
   const account = {
     id: "acc1", organizationId: "org1", providerAccountId: "ig1",
     credential: opts.cred === false ? null : {
       encryptedToken: enc.encrypted, tokenIv: enc.iv, tokenTag: enc.tag, loginMode: "FACEBOOK",
       expiresAt: opts.expired ? new Date(NOW.getTime() - 1000) : null,
+      status: opts.credStatus ?? "ACTIVE",
     },
   };
+  const credUpdates: any[] = [];
   const automations = [{ id: "a1", organizationId: opts.orgMismatch ? "orgX" : "org1", keyword: "LINK", replyMessage: "Olá!", linkUrl: "https://dabitech.com.br", status: opts.status ?? "ACTIVE", ...(opts.auto ?? {}) }];
   const deliveries: any[] = opts.existingDelivery ? [{ id: "d0", organizationId: "org1", automationId: "a1", commentId: "c1", status: "PENDING", attempts: 0, ...opts.existingDelivery }] : [];
   const publicReplies: any[] = [];
   const events: Record<string, any> = { ev1: { id: "ev1", status: "RECEIVED", error: null } };
   const prisma = {
-    socialAccount: { findUnique: async () => account },
+    socialAccount: { findUnique: async () => ({ ...account, credential: account.credential ? { ...account.credential } : null }) }, // snapshot, como o Prisma
+    socialCredential: {
+      updateMany: async ({ where, data }: any) => {
+        credUpdates.push({ where, data });
+        const c: any = account.credential;
+        const hit = c && where.socialAccountId === account.id && c.status === where.status && c.encryptedToken === where.encryptedToken;
+        if (hit) Object.assign(c, data);
+        return { count: hit ? 1 : 0 };
+      },
+    },
     automation: { findMany: async ({ where }: any) => automations.filter((a) => a.status === where.status) },
     messageDelivery: {
       create: async ({ data }: any) => {
@@ -72,10 +83,65 @@ function setup(opts: { publicEnabled?: boolean; auto?: Record<string, unknown>; 
   const route = (ts: string | null, send: () => Response | Promise<Response>) => {
     handler = (url) => (url.includes("/replies") ? (t_pub?.() ?? new Response(JSON.stringify({ id: "r_1" }), { status: 200 })) : url.includes("/messages") ? send() : new Response(JSON.stringify(ts ? { timestamp: ts, id: "c1" } : {}), { status: 200 }));
   };
-  return { deps, calls, deliveries, events, route, routePub, publicReplies };
+  return { deps, calls, deliveries, events, route, routePub, publicReplies, account, credUpdates };
 }
 const job = (over: Record<string, unknown> = {}) => ({ eventId: "ev1", igAccountId: "ig1", commentId: "c1", mediaId: "m1", text: "quero o link", fromId: "u9", ...over });
 const ok = () => new Response(JSON.stringify({ recipient_id: "r1", message_id: "m_1" }), { status: 200 });
+
+const tokenError = () => new Response(JSON.stringify({ error: { code: 190, type: "OAuthException", message: "Error validating access token: session invalidated" } }), { status: 400 });
+
+describe("credencial inválida (erro 190)", () => {
+  it("190 no envio: entrega fica HELD com attempts=0 (nada foi enviado), só a credencial desta conta é marcada", async () => {
+    const t = setup(); t.route(isoAgo(H), tokenError);
+    await processCommentEvent(t.deps, job());
+    expect(t.deliveries[0]).toMatchObject({ status: "HELD", attempts: 0 });
+    expect(t.deliveries[0].error).toMatch(/reconecte/);
+    expect(t.events.ev1.status).toBe("RECEIVED");
+    expect((t.account.credential as any).status).toBe("NEEDS_RECONNECT");
+    expect(t.credUpdates).toHaveLength(1);
+    expect(t.credUpdates[0].where.socialAccountId).toBe("acc1");
+    expect(JSON.stringify([t.deliveries, t.events, t.credUpdates])).not.toContain(TOKEN);
+  });
+  it("190 ao consultar a idade do comentário: também retém e marca, sem tentar enviar", async () => {
+    const t = setup();
+    t.deps.fetchImpl = (async (url: any) => { t.calls.push({ url: String(url) }); return tokenError(); }) as any;
+    await processCommentEvent(t.deps, job());
+    expect(t.deliveries[0]).toMatchObject({ status: "HELD", attempts: 0 });
+    expect(t.calls.some((c) => c.url.includes("/messages"))).toBe(false);
+    expect((t.account.credential as any).status).toBe("NEEDS_RECONNECT");
+  });
+  it("credencial já marcada: nenhuma chamada à Meta e a entrega é retida", async () => {
+    const t = setup({ credStatus: "NEEDS_RECONNECT" });
+    await processCommentEvent(t.deps, job());
+    expect(t.calls).toHaveLength(0);
+    expect(t.deliveries[0]).toMatchObject({ status: "HELD", attempts: 0 });
+    expect(t.deliveries[0].error).toMatch(/reconecte/);
+  });
+  it("não sobrescreve reconexão feita durante a chamada (filtro pelo token usado)", async () => {
+    const t = setup(); t.route(isoAgo(H), async () => { (t.account.credential as any).encryptedToken = "TOKEN-NOVO"; return tokenError(); });
+    await processCommentEvent(t.deps, job());
+    expect((t.account.credential as any).status).toBe("ACTIVE"); // credencial nova continua ativa
+    expect(t.deliveries[0].status).toBe("HELD");
+  });
+  it("resposta pública com 190: FAILED, credencial marcada; DM desabilitada", async () => {
+    const t = setup({ publicEnabled: true, auto: { dmEnabled: false, publicReplyEnabled: true, publicReplyMessage: "Oi" } });
+    t.route(isoAgo(H), ok); t.routePub(tokenError);
+    await processCommentEvent(t.deps, job());
+    expect(t.publicReplies[0].status).toBe("FAILED");
+    expect((t.account.credential as any).status).toBe("NEEDS_RECONNECT");
+  });
+  it("resposta pública com credencial pendente: não chama a Meta", async () => {
+    const t = setup({ credStatus: "NEEDS_RECONNECT", publicEnabled: true, auto: { dmEnabled: false, publicReplyEnabled: true, publicReplyMessage: "Oi" } });
+    await processCommentEvent(t.deps, job());
+    expect(t.calls).toHaveLength(0);
+    expect(t.publicReplies).toHaveLength(0);
+  });
+  it("após reconectar (credencial ACTIVE de novo) a entrega retida é liberada pela retomada e enviada", async () => {
+    const t = setup({ existingDelivery: { status: "HELD", attempts: 0 } }); t.route(isoAgo(H), ok);
+    await processCommentEvent(t.deps, job());
+    expect(t.deliveries[0].status).toBe("SENT");
+  });
+});
 
 describe("processCommentEvent", () => {
   it("envio desabilitado: nenhuma chamada à Meta, entrega HELD e evento RECEIVED", async () => {
@@ -121,11 +187,11 @@ describe("processCommentEvent", () => {
 
   it("erro definitivo da Meta: FAILED com code/subcode, sem vazar o token", async () => {
     const t = setup();
-    t.route(isoAgo(H), () => new Response(JSON.stringify({ error: { message: `Token ${TOKEN} inválido`, type: "OAuthException", code: 190, error_subcode: 463, fbtrace_id: "x" } }), { status: 400 }));
+    t.route(isoAgo(H), () => new Response(JSON.stringify({ error: { message: `Token ${TOKEN} inválido`, type: "OAuthException", code: 100, error_subcode: 2018, fbtrace_id: "x" } }), { status: 400 }));
     await processCommentEvent(t.deps, job());
     const d = t.deliveries[0];
     expect(d.status).toBe("FAILED");
-    expect(d.error).toContain("190/463");
+    expect(d.error).toContain("100/2018");
     expect(JSON.stringify(d)).not.toContain(TOKEN);
     expect(JSON.stringify(t.events.ev1)).not.toContain(TOKEN);
   });

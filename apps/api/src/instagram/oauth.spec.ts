@@ -24,6 +24,7 @@ function setup(o: Opts = {}) {
   const members = o.members ?? { "u1:org1": "OWNER" };
   const tx = {
     socialAccount: {
+      findFirst: async ({ where }: any) => db.accounts.find((a) => a.id === where.id && a.organizationId === where.organizationId) ?? null,
       findUnique: async ({ where }: any) => db.accounts.find((a) => a.providerAccountId === where.provider_providerAccountId.providerAccountId) ?? null,
       upsert: async ({ where, create, update }: any) => {
         const e = db.accounts.find((a) => a.providerAccountId === where.provider_providerAccountId.providerAccountId);
@@ -250,5 +251,69 @@ describe("completeInstagramOAuth", () => {
     const s = setup();
     s.deps.store = { put: async () => {}, take: async () => { throw new Error("redis"); } };
     await expect(completeInstagramOAuth(s.deps, { userId: "u1", state: "x", code: CODE })).rejects.toMatchObject({ code: "store_unavailable" });
+  });
+});
+
+describe("reconexão de uma conta existente", () => {
+  const reconn = (s: ReturnType<typeof setup>, accountId = "acc0") => startInstagramOAuth(s.deps, { userId: "u1", organizationId: "org1", reconnectAccountId: accountId });
+  const stateOf = (url: string) => new URL(url).searchParams.get("state")!;
+  const existing = (org = "org1") => ({ existing: [{ providerAccountId: "17841", organizationId: org }] });
+
+  it("substitui o token SÓ dessa conta, depois de conferir o ID, e reativa a credencial", async () => {
+    const s = setup(existing());
+    s.db.accounts[0].id = "acc0"; s.db.accounts[0].username = "cliente.novo";
+    const { url } = await reconn(s);
+    const r = await completeInstagramOAuth(s.deps, { userId: "u1", state: stateOf(url), code: CODE });
+    expect(r).toMatchObject({ outcome: "reconnected", organizationId: "org1", connected: [{ username: "cliente.novo" }] });
+    expect(s.db.creds).toHaveLength(1);
+    expect(s.db.creds[0]).toMatchObject({ status: "ACTIVE", statusReason: null, loginMode: "FACEBOOK" });
+    expect(decryptToken({ encrypted: s.db.creds[0].encryptedToken, iv: s.db.creds[0].tokenIv, tag: s.db.creds[0].tokenTag }, KEY)).toBe(TOKEN);
+    expect(s.db.audits[0]).toMatchObject({ action: "social_account.reconnected", userId: "u1", organizationId: "org1" });
+  });
+
+  it("ID autorizado na Meta diferente do da conta: recusa e não grava nada", async () => {
+    const s = setup({ ...existing(), accounts: [{ id: "55555", username: "outra.conta" }] });
+    s.db.accounts[0].id = "acc0";
+    const { url } = await reconn(s);
+    const r = await completeInstagramOAuth(s.deps, { userId: "u1", state: stateOf(url), code: CODE });
+    expect(r.outcome).toBe("reconnect_mismatch");
+    expect(s.db.creds).toHaveLength(0);
+    expect(s.db.accounts).toHaveLength(1);
+  });
+
+  it("não conecta contas novas durante uma reconexão (só a alvo)", async () => {
+    const s = setup({ ...existing(), accounts: [{ id: "17841", username: "cliente.novo" }, { id: "88888", username: "nova.extra" }] });
+    s.db.accounts[0].id = "acc0";
+    const { url } = await reconn(s);
+    await completeInstagramOAuth(s.deps, { userId: "u1", state: stateOf(url), code: CODE });
+    expect(s.db.accounts.map((a: any) => a.providerAccountId)).toEqual(["17841"]);
+  });
+
+  it("conta de OUTRA organização não pode ser reconectada: não encontrada, sem state emitido", async () => {
+    const s = setup(existing("orgB"));
+    s.db.accounts[0].id = "acc0";
+    await expect(reconn(s)).rejects.toMatchObject({ code: "not_found" });
+    expect(s.calls).toHaveLength(0);
+  });
+
+  it("papel MEMBER não inicia reconexão", async () => {
+    const s = setup({ ...existing(), members: { "u1:org1": "MEMBER" } });
+    s.db.accounts[0].id = "acc0";
+    await expect(reconn(s)).rejects.toMatchObject({ code: "forbidden" });
+  });
+
+  it("cancelamento/state expirado/uso único valem também na reconexão", async () => {
+    const s = setup(existing()); s.db.accounts[0].id = "acc0";
+    const a = stateOf((await reconn(s)).url);
+    expect((await completeInstagramOAuth(s.deps, { userId: "u1", state: a, error: "access_denied" })).outcome).toBe("cancelled");
+    expect((await completeInstagramOAuth(s.deps, { userId: "u1", state: a, code: CODE })).outcome).toBe("expired");
+    expect(s.db.creds).toHaveLength(0);
+  });
+
+  it("o fluxo normal continua sem trocar token de conta já conectada", async () => {
+    const s = setup(existing());
+    const state = await s.begin();
+    expect((await completeInstagramOAuth(s.deps, { userId: "u1", state, code: CODE })).outcome).toBe("already_connected");
+    expect(s.db.creds).toHaveLength(0);
   });
 });

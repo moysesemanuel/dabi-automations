@@ -3,11 +3,15 @@ import { loadEnv } from "@dabi/config";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import { OrgGuard, Roles } from "../orgs/org.guard";
 import { PrismaService } from "../prisma/prisma.module";
+import { InstagramOAuthService } from "./instagram-oauth.controller";
 import { SubscriptionError, subscribeAccountWebhook } from "./webhook-subscription";
 
 @Injectable()
 export class AccountActionsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService, private oauth: InstagramOAuthService) {}
+
+  /** Inicia a reconexão de UMA conta existente desta organização (nunca substitui token automaticamente). */
+  reconnect(organizationId: string, accountId: string, userId: string) { return this.oauth.start(userId, organizationId, accountId); }
 
   async subscribeWebhook(organizationId: string, accountId: string, actorUserId: string) {
     const e = loadEnv();
@@ -38,5 +42,11 @@ export class AccountActionsController {
   @Post("webhook-subscription") @HttpCode(200)
   subscribe(@Param("orgId") orgId: string, @Param("accountId") accountId: string, @Req() req: any) {
     return this.svc.subscribeWebhook(orgId, accountId, req.user.id);
+  }
+
+  /** Devolve a URL de autorização da Meta para reconectar esta conta (token revogado ou inválido). */
+  @Post("reconnect") @HttpCode(200)
+  reconnect(@Param("orgId") orgId: string, @Param("accountId") accountId: string, @Req() req: any) {
+    return this.svc.reconnect(orgId, accountId, req.user.id);
   }
 }

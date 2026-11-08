@@ -1,4 +1,5 @@
 import { decryptToken } from "@dabi/config";
+import { markNeedsReconnect } from "./credential-status";
 
 /** Único campo assinado: comentários. (A Meta aplica ao conta os campos marcados no painel do app.) */
 export const WEBHOOK_FIELDS = "comments";
@@ -66,7 +67,10 @@ export async function subscribeAccountWebhook(deps: SubscriptionDeps, input: { o
     });
     const body: any = await res.json().catch(() => ({}));
     if (res.ok && body?.success === true) status = "SUBSCRIBED";
-    else error = `Meta rejeitou (HTTP ${res.status}${body?.error?.code != null ? `, código ${body.error.code}` : ""}): ${redact(body?.error?.message ?? "sem detalhes", [token])}`;
+    else if (Number(body?.error?.code) === 190) {
+      await markNeedsReconnect(prisma, { socialAccountId: account.id, encryptedToken: account.credential.encryptedToken }, now);
+      error = "A Meta recusou a credencial (token inválido ou revogado). Reconecte a conta.";
+    } else error = `Meta rejeitou (HTTP ${res.status}${body?.error?.code != null ? `, código ${body.error.code}` : ""}): ${redact(body?.error?.message ?? "sem detalhes", [token])}`;
   } catch {
     error = "Não foi possível falar com a Meta (rede ou tempo esgotado). Tente novamente.";
   }

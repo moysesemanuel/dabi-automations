@@ -25,7 +25,7 @@ export class DashboardService {
       orderBy: { createdAt: "asc" },
       select: {
         id: true, username: true, providerAccountId: true, createdAt: true, webhookStatus: true, webhookSubscribedAt: true, webhookError: true,
-        credential: { select: { loginMode: true, expiresAt: true, scopes: true, updatedAt: true } },
+        credential: { select: { loginMode: true, expiresAt: true, scopes: true, updatedAt: true, status: true, statusReason: true, statusChangedAt: true } },
         _count: { select: { media: true, automations: true } },
       },
     });
@@ -34,7 +34,7 @@ export class DashboardService {
       mediaCount: _count.media,
       automationCount: _count.automations,
       credential: credential
-        ? { connected: true, loginMode: credential.loginMode, expiresAt: credential.expiresAt, scopes: credential.scopes, updatedAt: credential.updatedAt }
+        ? { connected: true, loginMode: credential.loginMode, expiresAt: credential.expiresAt, scopes: credential.scopes, updatedAt: credential.updatedAt, status: credential.status, statusReason: credential.statusReason, statusChangedAt: credential.statusChangedAt }
         : { connected: false },
     }));
   }
@@ -42,17 +42,18 @@ export class DashboardService {
   /** Números da visão geral, sempre restritos à organização. */
   async overview(organizationId: string) {
     const where = { organizationId };
-    const [accounts, media, active, paused, dm, pub] = await Promise.all([
+    const [accounts, media, active, paused, dm, pub, needsReconnect] = await Promise.all([
       this.prisma.socialAccount.count({ where }),
       this.prisma.media.count({ where }),
       this.prisma.automation.count({ where: { ...where, status: "ACTIVE" } }),
       this.prisma.automation.count({ where: { ...where, status: "PAUSED" } }),
       this.prisma.messageDelivery.groupBy({ by: ["status"], where, _count: { _all: true } }),
       this.prisma.publicReply.groupBy({ by: ["status"], where, _count: { _all: true } }),
+      this.prisma.socialCredential.count({ where: { status: "NEEDS_RECONNECT", socialAccount: { organizationId } } }),
     ]);
     const tally = (g: { status: string; _count: { _all: number } }[]) =>
       Object.fromEntries(STATUSES.map((s) => [s, g.find((x) => x.status === s)?._count._all ?? 0]));
-    return { accounts, media, automations: { active, paused }, directMessages: tally(dm), publicReplies: tally(pub) };
+    return { accounts, needsReconnect, media, automations: { active, paused }, directMessages: tally(dm), publicReplies: tally(pub) };
   }
 
   /** Histórico paginado de DMs (kind=dm) ou respostas públicas (kind=public). */

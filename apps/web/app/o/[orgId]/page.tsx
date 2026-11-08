@@ -19,6 +19,12 @@ export default async function OverviewPage({ params }: { params: Promise<{ orgId
 
       <SendingNotice sending={o.sending} />
 
+      {o.needsReconnect > 0 && (
+        <p className="alert bad" role="alert">
+          {o.needsReconnect === 1 ? "1 conta precisa" : `${o.needsReconnect} contas precisam`} ser reconectada{o.needsReconnect === 1 ? "" : "s"}: a Meta recusou o acesso. <Link className="action-link" href={`${base}/contas`}>Ver contas</Link>
+        </p>
+      )}
+
       {problems > 0 && (
         <p className="alert warn" role="status">
           {problems} {problems === 1 ? "envio precisa" : "envios precisam"} de atenção. <Link className="action-link" href={`${base}/historico`}>Ver no histórico</Link>

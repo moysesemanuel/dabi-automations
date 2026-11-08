@@ -12,12 +12,12 @@ export const STATE_TTL_SECONDS = 600;
 export const REQUIRED_PERMISSIONS = ["instagram_basic", "instagram_manage_messages", "instagram_manage_comments"] as const;
 const MAX_ACCOUNTS = 25;
 
-export interface StatePayload { userId: string; organizationId: string; provider?: string }
+export interface StatePayload { userId: string; organizationId: string; provider?: string; reconnectAccountId?: string }
 
 /** Provedor de conexão de contas. Hoje só existe o Unified Login da Meta; novos provedores entram aqui quando forem habilitados. */
 export interface ConnectionProvider {
   readonly id: string;
-  start(deps: OAuthDeps, input: { userId: string; organizationId: string }): Promise<{ url: string }>;
+  start(deps: OAuthDeps, input: { userId: string; organizationId: string; reconnectAccountId?: string }): Promise<{ url: string }>;
   complete(deps: OAuthDeps, input: CompleteInput): Promise<OAuthResult>;
 }
 export const META_UNIFIED_LOGIN = "meta-unified-login";
@@ -57,12 +57,12 @@ export interface OAuthDeps {
 
 /** Falhas que impedem iniciar o fluxo (viram HTTP 4xx/5xx na API). */
 export class OAuthError extends Error {
-  constructor(readonly code: "not_configured" | "forbidden" | "store_unavailable", message: string) { super(message); }
+  constructor(readonly code: "not_configured" | "forbidden" | "store_unavailable" | "not_found", message: string) { super(message); }
 }
 
 export type OAuthOutcome =
   | "connected" | "partial" | "already_connected" | "other_organization"
-  | "cancelled" | "expired" | "forbidden" | "insufficient_permissions" | "no_accounts" | "error";
+  | "cancelled" | "expired" | "forbidden" | "insufficient_permissions" | "no_accounts" | "reconnected" | "reconnect_mismatch" | "error";
 
 export interface OAuthResult {
   outcome: OAuthOutcome;
@@ -85,15 +85,20 @@ async function assertCanConnect(prisma: any, userId: string, organizationId: str
   return Boolean(m && (m.role === "OWNER" || m.role === "ADMIN"));
 }
 
-export async function startInstagramOAuth(deps: OAuthDeps, input: { userId: string; organizationId: string }): Promise<{ url: string }> {
+export async function startInstagramOAuth(deps: OAuthDeps, input: { userId: string; organizationId: string; reconnectAccountId?: string }): Promise<{ url: string }> {
   const { env } = deps;
   if (!env.appId || !env.appSecret || !env.configId) throw new OAuthError("not_configured", "Conexão com o Instagram não configurada neste ambiente.");
   if (!/^https:\/\//i.test(env.redirectUri)) throw new OAuthError("not_configured", "A URL de retorno do Instagram precisa ser HTTPS.");
   if (!(await assertCanConnect(deps.prisma, input.userId, input.organizationId))) throw new OAuthError("forbidden", "Apenas proprietários e administradores podem conectar contas.");
 
+  // Reconexão: a conta precisa existir NESTA organização (outra organização => não encontrada).
+  if (input.reconnectAccountId) {
+    const target = await deps.prisma.socialAccount.findFirst({ where: { id: input.reconnectAccountId, organizationId: input.organizationId } });
+    if (!target) throw new OAuthError("not_found", "Conta não encontrada.");
+  }
   const state = randomBytes(32).toString("base64url");
   try {
-    await deps.store.put(hashState(state), { userId: input.userId, organizationId: input.organizationId, provider: META_UNIFIED_LOGIN }, STATE_TTL_SECONDS);
+    await deps.store.put(hashState(state), { userId: input.userId, organizationId: input.organizationId, provider: META_UNIFIED_LOGIN, ...(input.reconnectAccountId ? { reconnectAccountId: input.reconnectAccountId } : {}) }, STATE_TTL_SECONDS);
   } catch {
     // Sem onde guardar o state não há como validar o retorno: não inicia o fluxo.
     throw new OAuthError("store_unavailable", "Serviço temporariamente indisponível. Tente novamente.");
@@ -146,6 +151,21 @@ export async function completeInstagramOAuth(deps: OAuthDeps, input: CompleteInp
     const accounts: { id: string; username: string }[] = (list.data ?? [])
       .filter((a: any) => a && typeof a.id === "string" && typeof a.username === "string").slice(0, MAX_ACCOUNTS);
     if (!accounts.length) return fail("no_accounts", orgId);
+
+    // Reconexão explícita de UMA conta: só ela tem o token substituído, e só se o ID autorizado na Meta for o mesmo.
+    if (payload.reconnectAccountId) {
+      const target = await prisma.socialAccount.findFirst({ where: { id: payload.reconnectAccountId, organizationId: orgId } });
+      if (!target) return fail("error", orgId);
+      const hit = accounts.find((a) => a.id === target.providerAccountId);
+      if (!hit) return fail("reconnect_mismatch", orgId);
+      try {
+        const r = await connectInstagramAccount(
+          { prisma, tokenEncryptionKey: env.tokenEncryptionKey, graphVersion: v, fetchImpl: deps.fetchImpl },
+          { organizationId: orgId, providerAccountId: target.providerAccountId, username: hit.username, accessToken: token, loginMode: "FACEBOOK", scopes: granted?.length ? granted : [...REQUIRED_PERMISSIONS], expiresAt, actorUserId: input.userId },
+        );
+        return { outcome: "reconnected", organizationId: orgId, connected: [{ id: r.id, username: r.username }], skipped: [] };
+      } catch { return fail("error", orgId); }
+    }
 
     const result: OAuthResult = { outcome: "connected", organizationId: orgId, connected: [], skipped: [] };
     for (const a of accounts) {

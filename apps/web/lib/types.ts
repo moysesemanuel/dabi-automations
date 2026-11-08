@@ -7,11 +7,11 @@ export interface Profile { id: string; email: string; name: string | null }
 export interface Account {
   id: string; username: string; providerAccountId: string; createdAt: string; mediaCount: number; automationCount: number;
   webhookStatus: "UNKNOWN" | "SUBSCRIBED" | "FAILED"; webhookSubscribedAt: string | null; webhookError: string | null;
-  credential: { connected: false } | { connected: true; loginMode: "INSTAGRAM" | "FACEBOOK"; expiresAt: string | null; scopes: string[]; updatedAt: string };
+  credential: { connected: false } | { connected: true; loginMode: "INSTAGRAM" | "FACEBOOK"; expiresAt: string | null; scopes: string[]; updatedAt: string; status: "ACTIVE" | "NEEDS_RECONNECT"; statusReason: string | null };
 }
 
 export interface Overview {
-  accounts: number; media: number; automations: { active: number; paused: number };
+  accounts: number; needsReconnect: number; media: number; automations: { active: number; paused: number };
   directMessages: Record<DeliveryStatus, number>; publicReplies: Record<DeliveryStatus, number>;
   sending: { directMessages: boolean; publicReplies: boolean };
 }

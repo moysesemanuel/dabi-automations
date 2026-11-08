@@ -20,13 +20,15 @@ export function guideFor(q: Question, a: OnboardingAnswer | null): GuideId | nul
 export const allReady = (s: Pick<ConnectionOnboarding, Question>) => QUESTIONS.every((q) => s[q.key] === "YES");
 
 export type Outcome =
-  | "connected" | "partial" | "already_connected" | "other_organization" | "cancelled"
+  | "connected" | "reconnected" | "reconnect_mismatch" | "partial" | "already_connected" | "other_organization" | "cancelled"
   | "expired" | "forbidden" | "insufficient_permissions" | "no_accounts" | "unavailable" | "error";
 
 export interface OutcomeInfo { tone: "ok" | "warn" | "bad"; title: string; body: string; guides: GuideId[]; retry: boolean; help: boolean }
 
 export const OUTCOMES: Record<Outcome, OutcomeInfo> = {
   connected: { tone: "ok", title: "Conta conectada", body: "Tudo certo. Agora você pode ver a conta em “Contas” e criar suas automações.", guides: [], retry: false, help: false },
+  reconnected: { tone: "ok", title: "Conta reconectada", body: "O acesso foi renovado. As entregas que ficaram retidas continuam retidas até o envio ser liberado pela equipe.", guides: [], retry: false, help: false },
+  reconnect_mismatch: { tone: "bad", title: "Conta diferente da escolhida", body: "A conta autorizada na Meta não é a que você quis reconectar. Na tela da Meta, escolha a mesma conta do Instagram.", guides: ["instagram-in-portfolio"], retry: false, help: true },
   partial: { tone: "warn", title: "Conectamos parte das contas", body: "Algumas contas já estavam conectadas ou pertencem a outra organização e não foram alteradas.", guides: [], retry: false, help: true },
   already_connected: { tone: "warn", title: "Essa conta já estava conectada", body: "Nada foi alterado: a conexão existente continua funcionando.", guides: [], retry: false, help: false },
   other_organization: { tone: "bad", title: "Essa conta já está em outra organização", body: "Cada conta do Instagram só pode ser usada em uma organização do DaBiChat. Fale com a nossa equipe para resolver.", guides: [], retry: false, help: true },

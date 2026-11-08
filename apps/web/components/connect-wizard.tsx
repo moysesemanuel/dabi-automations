@@ -109,7 +109,7 @@ export function ConnectWizard({ orgId, initial, initialStep, outcome, save, conn
               <div className={`alert ${info.tone}`} role="status"><strong>{info.title}</strong><div>{info.body}</div></div>
               {info.guides.map((id) => <GuideCard key={id} id={id} />)}
               <div className="row">
-                {outcome === "connected" || outcome === "partial" || outcome === "already_connected" ? <Link className="btn primary" href={`/o/${orgId}/contas`}>Ver minhas contas</Link> : null}
+                {outcome === "connected" || outcome === "reconnected" || outcome === "partial" || outcome === "already_connected" ? <Link className="btn primary" href={`/o/${orgId}/contas`}>Ver minhas contas</Link> : null}
                 {info.retry && <button className="btn primary" type="button" onClick={() => go("CONNECT")}>Tentar de novo</button>}
                 <button className="btn" type="button" onClick={() => go("PREPARE")}>Rever a preparação</button>
                 {info.help && help}

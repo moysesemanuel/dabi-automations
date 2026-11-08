@@ -90,7 +90,7 @@ export async function connectInstagramAccount(deps: ConnectDeps, input: ConnectI
     // não pode sobrescrever a credencial do vencedor (a transação desfaz tudo).
     if (account.organizationId !== input.organizationId)
       throw new ConnectError("Esta conta já está conectada a outra organização.", "other_organization");
-    const cred = { encryptedToken: enc.encrypted, tokenIv: enc.iv, tokenTag: enc.tag, loginMode: mode, scopes, expiresAt: input.expiresAt ?? null };
+    const cred = { encryptedToken: enc.encrypted, tokenIv: enc.iv, tokenTag: enc.tag, loginMode: mode, scopes, expiresAt: input.expiresAt ?? null, status: "ACTIVE", statusReason: null, statusChangedAt: null };
     await tx.socialCredential.upsert({
       where: { socialAccountId: account.id },
       create: { socialAccountId: account.id, ...cred },
