@@ -1,9 +1,16 @@
+import { resolve } from "node:path";
 import type { NextConfig } from "next";
+
+// O `next dev` não lê o .env da raiz do monorepo: carrega aqui (não sobrescreve variáveis já definidas).
+try { process.loadEnvFile(resolve(import.meta.dirname ?? __dirname, "../../.env")); } catch { /* sem .env: usa o ambiente */ }
+const devHost = process.env.DEV_PUBLIC_HOST?.trim();
 
 const config: NextConfig = {
   poweredByHeader: false,
   // Domínio HTTPS de desenvolvimento (túnel), configurável por ambiente: DEV_PUBLIC_HOST=dev.exemplo.com
-  allowedDevOrigins: process.env.DEV_PUBLIC_HOST ? [process.env.DEV_PUBLIC_HOST] : [],
+  allowedDevOrigins: devHost ? [devHost] : [],
+  // Server Actions comparam Origin x Host: com túnel/proxy o Host pode chegar diferente do Origin.
+  ...(devHost ? { experimental: { serverActions: { allowedOrigins: [devHost] } } } : {}),
   // @dabi/contracts é TypeScript puro (sem build): o Next precisa compilá-lo.
   transpilePackages: ["@dabi/contracts"],
   async headers() {
