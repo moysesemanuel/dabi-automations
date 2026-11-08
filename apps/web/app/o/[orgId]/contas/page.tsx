@@ -2,9 +2,27 @@ import type { Metadata } from "next";
 import { apiGet } from "@/lib/api";
 import type { Account } from "@/lib/types";
 import { formatDate } from "@/lib/format";
+import { roleIn } from "@/lib/org";
+import { canWrite } from "@/lib/types";
+import { ConnectInstagram } from "@/components/connect-instagram";
+import { connectInstagram } from "./actions";
 
 export const metadata: Metadata = { title: "Contas" };
 const DAY = 86_400_000;
+
+const IG_MESSAGES: Record<string, { cls: "ok" | "warn" | "bad"; text: string }> = {
+  connected: { cls: "ok", text: "Conta conectada com sucesso." },
+  partial: { cls: "warn", text: "Algumas contas foram conectadas; outras já estavam conectadas ou pertencem a outra organização." },
+  already_connected: { cls: "warn", text: "Essa conta já estava conectada. Nada foi alterado." },
+  other_organization: { cls: "bad", text: "Essa conta do Instagram já está conectada a outra organização." },
+  cancelled: { cls: "warn", text: "Conexão cancelada. Nenhuma conta foi conectada." },
+  expired: { cls: "bad", text: "O pedido de conexão expirou ou já foi usado. Comece de novo." },
+  forbidden: { cls: "bad", text: "Você não tem permissão para conectar contas nesta organização." },
+  insufficient_permissions: { cls: "bad", text: "Faltaram permissões. Autorize todas as permissões solicitadas (comentários e mensagens) e tente de novo." },
+  no_accounts: { cls: "warn", text: "Nenhuma conta do Instagram foi encontrada nessa autorização." },
+  unavailable: { cls: "bad", text: "Serviço indisponível no momento. Tente novamente em instantes." },
+  error: { cls: "bad", text: "Não foi possível conectar a conta. Tente novamente." },
+};
 
 function tokenState(c: Account["credential"]): { label: string; cls: string; detail: string } {
   if (!c.connected) return { label: "Sem credencial", cls: "bad", detail: "A conta precisa ser reconectada pela equipe técnica." };
@@ -15,15 +33,21 @@ function tokenState(c: Account["credential"]): { label: string; cls: string; det
   return { label: "Conectada", cls: "ok", detail: `Válida até ${formatDate(c.expiresAt)}.` };
 }
 
-export default async function AccountsPage({ params }: { params: Promise<{ orgId: string }> }) {
+export default async function AccountsPage({ params, searchParams }: { params: Promise<{ orgId: string }>; searchParams: Promise<{ ig?: string }> }) {
   const { orgId } = await params;
+  const { ig } = await searchParams;
+  const flash = ig ? IG_MESSAGES[ig] : undefined;
+  const role = await roleIn(orgId);
   const accounts = await apiGet<Account[]>(`/orgs/${orgId}/accounts`);
   return (
     <>
-      <div className="page-head"><div><h1>Contas</h1><p>Contas do Instagram conectadas a esta organização.</p></div></div>
+      <div className="page-head"><div><h1>Contas</h1><p>Contas do Instagram conectadas a esta organização.</p></div>
+        {canWrite(role) && <ConnectInstagram action={connectInstagram.bind(null, orgId)} label="Conectar conta do Instagram" />}
+      </div>
+      {flash && <div className={`alert ${flash.cls}`} role="status">{flash.text}</div>}
 
       {accounts.length === 0 ? (
-        <div className="card empty"><h2>Nenhuma conta conectada</h2><p>Peça à equipe técnica para conectar a conta do Instagram da sua empresa.</p></div>
+        <div className="card empty"><h2>Nenhuma conta conectada</h2><p>{canWrite(role) ? "Use o botão acima para conectar a conta do Instagram da sua empresa." : "Peça a um administrador para conectar a conta do Instagram da sua empresa."}</p></div>
       ) : (
         <div className="table-wrap" tabIndex={0} role="region" aria-labelledby="accounts-caption">
           <table>
@@ -51,8 +75,8 @@ export default async function AccountsPage({ params }: { params: Promise<{ orgId
       )}
 
       <section className="card">
-        <h2>Como conectar ou reconectar uma conta</h2>
-        <p className="muted">Por segurança, a chave de acesso do Instagram nunca passa por esta tela: a conexão é feita pela equipe técnica, direto no servidor, e a chave fica guardada criptografada. Em uma próxima versão você poderá conectar por aqui.</p>
+        <h2>Sobre a conexão</h2>
+        <p className="muted">Você autoriza no site do Instagram/Meta: a chave de acesso nunca passa por esta tela e fica guardada criptografada. Contas já conectadas não são alteradas por este fluxo.</p>
       </section>
     </>
   );

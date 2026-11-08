@@ -2,6 +2,8 @@ import type { NextConfig } from "next";
 
 const config: NextConfig = {
   poweredByHeader: false,
+  // Domínio HTTPS de desenvolvimento (túnel), configurável por ambiente: DEV_PUBLIC_HOST=dev.exemplo.com
+  allowedDevOrigins: process.env.DEV_PUBLIC_HOST ? [process.env.DEV_PUBLIC_HOST] : [],
   // @dabi/contracts é TypeScript puro (sem build): o Next precisa compilá-lo.
   transpilePackages: ["@dabi/contracts"],
   async headers() {
