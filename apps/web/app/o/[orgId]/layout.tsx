@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { apiGet } from "@/lib/api";
 import type { Membership, Profile } from "@/lib/types";
+import { Logo } from "@/components/logo";
 import { Nav } from "@/components/nav";
 import { OrgSwitch } from "@/components/org-switch";
 import { ThemeDialog } from "@/components/theme-dialog";
@@ -17,7 +18,7 @@ export default async function OrgLayout({ children, params }: { children: React.
     <div className="shell">
       <a className="skip-link" href="#conteudo">Pular para o conteúdo</a>
       <aside className="sidebar">
-        <div className="brand"><span className="brand-mark" aria-hidden="true">D</span> DaBi Automations</div>
+        <div className="brand"><Logo height={32} /></div>
         <OrgSwitch current={orgId} orgs={memberships.map((m) => m.organization)} />
         <Nav orgId={orgId} canManageTeam={current.role === "OWNER" || current.role === "ADMIN"} />
         <div className="side-foot">

@@ -14,6 +14,7 @@ const read = (): Scheme => {
 const apply = (s: Scheme) => {
   const meta = document.querySelector('meta[name="color-scheme"]');
   if (meta) meta.setAttribute("content", s === "system" ? "light dark" : s);
+  if (s === "system") delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = s; // usado para trocar a logo
 };
 
 export function ThemeDialog() {

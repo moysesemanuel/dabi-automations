@@ -10,7 +10,7 @@ export default async function Home() {
     <main className="auth">
       <div className="card auth-card">
         <h1>Sem organização</h1>
-        <p className="muted">Sua conta ainda não faz parte de nenhuma organização. Peça acesso a quem administra a DaBi Automations.</p>
+        <p className="muted">Sua conta ainda não faz parte de nenhuma organização. Peça acesso a quem administra o DaBiChat.</p>
         <form action={logout}><button className="btn">Sair</button></form>
       </div>
     </main>

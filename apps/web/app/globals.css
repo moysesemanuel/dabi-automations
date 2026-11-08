@@ -39,7 +39,14 @@ a { color: var(--accent); }
 .shell { min-height: 100dvh; display: grid; grid-template-columns: 17rem minmax(0, 1fr); }
 .sidebar { min-inline-size: 0; position: sticky; top: 0; height: 100dvh; display: flex; flex-direction: column; gap: 1.25rem; padding: 1.25rem 1rem; background: var(--surface); border-inline-end: 1px solid var(--border); }
 .brand { display: flex; align-items: center; gap: .6rem; font-weight: 700; padding-inline: .5rem; }
-.brand-mark { inline-size: 2rem; block-size: 2rem; border-radius: 9px; background: var(--accent); color: var(--accent-text); display: grid; place-items: center; font-size: .95rem; }
+.logo img { display: block; block-size: auto; max-inline-size: 100%; }
+.logo-dark { display: none !important; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .logo-light { display: none !important; }
+  :root:not([data-theme="light"]) .logo-dark { display: block !important; }
+}
+:root[data-theme="dark"] .logo-light { display: none !important; }
+:root[data-theme="dark"] .logo-dark { display: block !important; }
 .org-switch { display: grid; gap: .25rem; }
 .org-switch label { font-size: .75rem; color: var(--muted); padding-inline: .5rem; }
 .nav { display: grid; gap: .25rem; min-inline-size: 0; }

@@ -63,7 +63,7 @@ export const GUIDES: Record<GuideId, Guide> = {
   "instagram-in-portfolio": {
     id: "instagram-in-portfolio",
     title: "Como colocar o Instagram no portfólio",
-    intro: "Para o DaBi acessar o seu Instagram, a conta precisa fazer parte do seu portfólio empresarial.",
+    intro: "Para o DaBiChat acessar o seu Instagram, a conta precisa fazer parte do seu portfólio empresarial.",
     steps: [
       "Confirme que a sua conta é profissional e que você tem controle total do portfólio.",
       "No computador, abra o Meta Business Suite e entre em “Configurações” do seu portfólio.",

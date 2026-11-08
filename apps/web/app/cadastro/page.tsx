@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { registrationOpen } from "@/lib/api";
+import { Logo } from "@/components/logo";
 import { RegisterForm } from "./register-form";
 
 export const metadata: Metadata = { title: "Criar conta" };
@@ -11,7 +12,7 @@ export default async function RegisterPage() {
   return (
     <main className="auth">
       <div className="card auth-card">
-        <div className="brand"><span className="brand-mark" aria-hidden="true">D</span> DaBi Automations</div>
+        <div className="brand"><Logo height={36} /></div>
         <div>
           <h1>Criar conta</h1>
           <p className="muted">Você será o proprietário da organização e poderá convidar outras pessoas depois.</p>

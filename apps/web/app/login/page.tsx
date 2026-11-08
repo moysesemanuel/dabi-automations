@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { registrationOpen } from "@/lib/api";
 import { safeNext } from "@/lib/safe-next";
+import { Logo } from "@/components/logo";
 import { LoginForm } from "./login-form";
 
 export const metadata: Metadata = { title: "Entrar" };
@@ -12,7 +13,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
   return (
     <main className="auth">
       <div className="card auth-card">
-        <div className="brand"><span className="brand-mark" aria-hidden="true">D</span> DaBi Automations</div>
+        <div className="brand"><Logo height={36} /></div>
         <div>
           <h1>Entrar</h1>
           <p className="muted">Acesse o painel da sua organização.</p>

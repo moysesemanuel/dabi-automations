@@ -83,7 +83,7 @@ export function ConnectWizard({ orgId, initial, initialStep, outcome, save, conn
       {step === "CONNECT" && (
         <section className="card" aria-labelledby="conn-h">
           <h2 id="conn-h">Conectar com a Meta</h2>
-          <p>Você vai para o site da Meta (dona do Instagram) e volta para cá. O DaBi nunca vê a sua senha.</p>
+          <p>Você vai para o site da Meta (dona do Instagram) e volta para cá. O DaBiChat nunca vê a sua senha.</p>
           <ol className="meta-steps">
             <li>Entre com o seu Facebook ou Instagram.</li>
             <li>Escolha o <strong>portfólio empresarial</strong> da sua empresa.</li>

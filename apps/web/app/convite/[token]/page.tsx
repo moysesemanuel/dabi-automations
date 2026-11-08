@@ -3,6 +3,7 @@ import Link from "next/link";
 import { publicApi, apiGet } from "@/lib/api";
 import { readToken } from "@/lib/session";
 import { roleLabel, type Profile, type Role } from "@/lib/types";
+import { Logo } from "@/components/logo";
 import { AcceptExisting, AcceptNew } from "./accept-forms";
 
 export const metadata: Metadata = { title: "Convite" };
@@ -12,7 +13,7 @@ export default async function InvitePage({ params }: { params: Promise<{ token: 
   const { token } = await params;
   const r = await publicApi<Preview>(`/invitations/${encodeURIComponent(token)}`);
   const shell = (children: React.ReactNode) => (
-    <main className="auth"><div className="card auth-card"><div className="brand"><span className="brand-mark" aria-hidden="true">D</span> DaBi Automations</div>{children}</div></main>
+    <main className="auth"><div className="card auth-card"><div className="brand"><Logo height={36} /></div>{children}</div></main>
   );
 
   if (!r.ok) {
