@@ -4,8 +4,7 @@ import type { Account } from "@/lib/types";
 import { formatDate } from "@/lib/format";
 import { roleIn } from "@/lib/org";
 import { canWrite } from "@/lib/types";
-import { ConnectInstagram } from "@/components/connect-instagram";
-import { connectInstagram } from "./actions";
+import Link from "next/link";
 
 export const metadata: Metadata = { title: "Contas" };
 const DAY = 86_400_000;
@@ -42,7 +41,7 @@ export default async function AccountsPage({ params, searchParams }: { params: P
   return (
     <>
       <div className="page-head"><div><h1>Contas</h1><p>Contas do Instagram conectadas a esta organização.</p></div>
-        {canWrite(role) && <ConnectInstagram action={connectInstagram.bind(null, orgId)} label="Conectar conta do Instagram" />}
+        {canWrite(role) && <Link className="btn primary" href={`/o/${orgId}/conectar`}>Conectar conta do Instagram</Link>}
       </div>
       {flash && <div className={`alert ${flash.cls}`} role="status">{flash.text}</div>}
 

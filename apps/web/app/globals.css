@@ -153,3 +153,22 @@ dialog::backdrop { background: rgb(8 10 16 / 55%); overflow: hidden; overscroll-
 .row.between { justify-content: space-between; }
 .clamp { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 @media (prefers-reduced-motion: no-preference) { .btn, .nav a { transition: background-color .12s, filter .12s; } }
+
+/* Assistente de conexão do Instagram */
+.wizard-steps { list-style: none; display: flex; flex-wrap: wrap; gap: .5rem; margin: 1rem 0; padding: 0; }
+.wizard-step { display: inline-flex; align-items: center; gap: .5rem; padding: .45rem .85rem; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font: inherit; cursor: pointer; }
+.wizard-step .n { display: inline-grid; place-items: center; width: 1.4rem; height: 1.4rem; border-radius: 50%; background: var(--surface-2); font-size: .8rem; font-weight: 700; }
+.wizard-step[aria-current="step"] { background: var(--accent-soft); border-color: var(--accent); font-weight: 600; }
+.wizard-step[aria-current="step"] .n { background: var(--accent); color: var(--accent-text); }
+.question { border: 0; border-block-start: 1px solid var(--border); padding: 1rem 0 0; margin: 1rem 0 0; min-inline-size: 0; }
+.question legend { font-weight: 600; padding: 0; }
+.segmented { display: flex; flex-wrap: wrap; gap: .5rem; margin-block: .5rem; }
+.segmented label { position: relative; }
+.segmented input { position: absolute; opacity: 0; inset: 0; cursor: pointer; }
+.segmented span { display: inline-flex; min-inline-size: 4.5rem; justify-content: center; padding: .5rem 1rem; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); }
+.segmented input:checked + span { background: var(--accent); border-color: var(--accent); color: var(--accent-text); font-weight: 600; }
+.segmented input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+.guide { margin-block: .75rem; padding: .75rem 1rem; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); }
+.guide summary { cursor: pointer; font-weight: 600; }
+.guide ol, .guide ul, .meta-steps { padding-inline-start: 1.25rem; margin-block: .5rem; display: grid; gap: .35rem; }
+.guide .tips { color: var(--muted); }

@@ -23,5 +23,5 @@ export async function GET(req: NextRequest) {
   });
   if (!r.ok) return back(r.status === 503 ? "/?ig=unavailable" : r.status === 400 ? "/?ig=error" : "/?ig=forbidden");
   const outcome = OUTCOMES.has(r.data.outcome) ? r.data.outcome : "error";
-  return back(r.data.organizationId ? `/o/${encodeURIComponent(r.data.organizationId)}/contas?ig=${outcome}` : `/?ig=${outcome}`);
+  return back(r.data.organizationId ? `/o/${encodeURIComponent(r.data.organizationId)}/conectar?ig=${outcome}` : `/?ig=${outcome}`);
 }

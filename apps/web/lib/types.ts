@@ -35,3 +35,14 @@ export const canWrite = (role: Role) => role === "OWNER" || role === "ADMIN";
 export interface Member { userId: string; email: string; name: string | null; role: Role }
 export interface Invitation { id: string; email: string; role: Role; expiresAt: string; createdAt: string; expired: boolean }
 export const roleLabel: Record<Role, string> = { OWNER: "Proprietário", ADMIN: "Administrador", MEMBER: "Membro" };
+
+export type OnboardingAnswer = "YES" | "NO" | "UNSURE";
+export type OnboardingStep = "PREPARE" | "CONNECT" | "RESULT";
+export interface ConnectionOnboarding {
+  step: OnboardingStep;
+  professionalAccount: OnboardingAnswer | null;
+  businessPortfolio: OnboardingAnswer | null;
+  instagramInPortfolio: OnboardingAnswer | null;
+  lastOutcome: string | null;
+  helpEmail: string | null;
+}
