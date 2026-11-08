@@ -5,6 +5,7 @@ import { completeInstagramOAuthSchema, type CompleteInstagramOAuthDto } from "@d
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import { ZodPipe } from "../auth/zod.pipe";
 import { OrgGuard, Roles } from "../orgs/org.guard";
+import { ConnectionOnboardingService } from "../onboarding/connection-onboarding.service";
 import { PrismaService } from "../prisma/prisma.module";
 import { OAuthError, metaUnifiedLogin, resolveRedirectUri, type ConnectionProvider, type OAuthDeps, type OAuthStateStore, type StatePayload } from "./oauth";
 
@@ -29,7 +30,7 @@ export class InstagramOAuthService {
   private store: OAuthStateStore = new RedisOAuthStateStore();
   /** Provedor ativo. Hoje fixo no Unified Login. */
   private provider: ConnectionProvider = metaUnifiedLogin;
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService, private onboarding: ConnectionOnboardingService) {}
 
   private deps(): OAuthDeps {
     const e = loadEnv();
@@ -51,12 +52,19 @@ export class InstagramOAuthService {
     }
   }
 
-  start(userId: string, organizationId: string) { return this.guard(() => this.provider.start(this.deps(), { userId, organizationId })); }
+  start(userId: string, organizationId: string) {
+    return this.guard(async () => {
+      const r = await this.provider.start(this.deps(), { userId, organizationId });
+      await this.onboarding.markConnecting(organizationId, userId);
+      return r;
+    });
+  }
 
   complete(userId: string, dto: CompleteInstagramOAuthDto) {
     return this.guard(async () => {
       const r = await this.provider.complete(this.deps(), { userId, ...dto });
       // Só o resultado, nunca code/token/secret.
+      if (r.organizationId) await this.onboarding.recordOutcome(r.organizationId, userId, r.outcome);
       this.log.log(`oauth: ${r.outcome} (conectadas=${r.connected.length}, ignoradas=${r.skipped.length})`);
       return r;
     });

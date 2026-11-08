@@ -126,3 +126,14 @@ export const completeInstagramOAuthSchema = z.object({
   errorReason: z.string().max(100).optional(),
 });
 export type CompleteInstagramOAuthDto = z.infer<typeof completeInstagramOAuthSchema>;
+
+/** Assistente de conexão do Instagram: só progresso e respostas (nunca dados sensíveis). */
+export const onboardingAnswerSchema = z.enum(["YES", "NO", "UNSURE"]);
+export const onboardingStepSchema = z.enum(["PREPARE", "CONNECT", "RESULT"]);
+export const updateConnectionOnboardingSchema = z.object({
+  step: onboardingStepSchema.optional(),
+  professionalAccount: onboardingAnswerSchema.nullable().optional(),
+  businessPortfolio: onboardingAnswerSchema.nullable().optional(),
+  instagramInPortfolio: onboardingAnswerSchema.nullable().optional(),
+}); // chaves desconhecidas (ex.: organizationId) são descartadas
+export type UpdateConnectionOnboardingDto = z.infer<typeof updateConnectionOnboardingSchema>;

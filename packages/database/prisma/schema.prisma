@@ -7,6 +7,19 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// Respostas do assistente de conexão (sem dado sensível).
+enum OnboardingAnswer {
+  YES
+  NO
+  UNSURE
+}
+
+enum OnboardingStep {
+  PREPARE
+  CONNECT
+  RESULT
+}
+
 enum Role {
   OWNER
   ADMIN
@@ -69,6 +82,7 @@ model Organization {
   publicReplies  PublicReply[]
   auditLogs      AuditLog[]
   invitations    Invitation[]
+  onboarding     ConnectionOnboarding?
 }
 
 model User {
@@ -111,6 +125,21 @@ model Invitation {
   @@index([organizationId, email])
 }
 
+// Progresso do assistente "Conectar Instagram": uma linha por organização. Só progresso e respostas; nunca tokens.
+model ConnectionOnboarding {
+  id                   String            @id @default(cuid())
+  organizationId       String            @unique
+  step                 OnboardingStep    @default(PREPARE)
+  professionalAccount  OnboardingAnswer?
+  businessPortfolio    OnboardingAnswer?
+  instagramInPortfolio OnboardingAnswer?
+  lastOutcome          String? // resultado da última tentativa (ex.: cancelled, no_accounts)
+  updatedById          String?
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+  organization         Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
 model SocialAccount {
   id                String       @id @default(cuid())
   organizationId    String
@@ -130,16 +159,16 @@ model SocialAccount {
 }
 
 model SocialCredential {
-  id               String        @id @default(cuid())
-  socialAccountId  String        @unique
-  encryptedToken   String // AES-256-GCM; chave fora do banco
-  tokenIv          String
-  tokenTag         String
-  loginMode        LoginMode     @default(INSTAGRAM)
-  scopes           String[]
-  expiresAt        DateTime?
-  updatedAt        DateTime      @updatedAt
-  socialAccount    SocialAccount @relation(fields: [socialAccountId], references: [id], onDelete: Cascade)
+  id              String        @id @default(cuid())
+  socialAccountId String        @unique
+  encryptedToken  String // AES-256-GCM; chave fora do banco
+  tokenIv         String
+  tokenTag        String
+  loginMode       LoginMode     @default(INSTAGRAM)
+  scopes          String[]
+  expiresAt       DateTime?
+  updatedAt       DateTime      @updatedAt
+  socialAccount   SocialAccount @relation(fields: [socialAccountId], references: [id], onDelete: Cascade)
 }
 
 model Media {
@@ -161,25 +190,25 @@ model Media {
 }
 
 model Automation {
-  id              String           @id @default(cuid())
-  organizationId  String
-  socialAccountId String
-  mediaId         String
-  keyword         String // comparado em minúsculas, sem acento
-  replyMessage    String
-  linkUrl         String?
-  replyFormat     ReplyFormat      @default(TEXT)
-  buttonTitle     String? // rótulo do botão (formato BUTTON)
+  id                 String           @id @default(cuid())
+  organizationId     String
+  socialAccountId    String
+  mediaId            String
+  keyword            String // comparado em minúsculas, sem acento
+  replyMessage       String
+  linkUrl            String?
+  replyFormat        ReplyFormat      @default(TEXT)
+  buttonTitle        String? // rótulo do botão (formato BUTTON)
   // Ações independentes: DM privada e resposta pública no comentário.
-  dmEnabled          Boolean @default(true)
-  publicReplyEnabled Boolean @default(false)
+  dmEnabled          Boolean          @default(true)
+  publicReplyEnabled Boolean          @default(false)
   publicReplyMessage String?
-  status          AutomationStatus @default(ACTIVE)
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
-  organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  socialAccount   SocialAccount    @relation(fields: [socialAccountId], references: [id], onDelete: Cascade)
-  media           Media            @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+  status             AutomationStatus @default(ACTIVE)
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  organization       Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  socialAccount      SocialAccount    @relation(fields: [socialAccountId], references: [id], onDelete: Cascade)
+  media              Media            @relation(fields: [mediaId], references: [id], onDelete: Cascade)
 
   deliveries    MessageDelivery[]
   publicReplies PublicReply[]
@@ -189,33 +218,33 @@ model Automation {
 }
 
 model AutomationEvent {
-  id               String          @id @default(cuid())
+  id               String         @id @default(cuid())
   organizationId   String?
   socialAccountId  String?
-  providerEventKey String          @unique // idempotência do webhook
+  providerEventKey String         @unique // idempotência do webhook
   payload          Json
-  status           EventStatus     @default(RECEIVED)
+  status           EventStatus    @default(RECEIVED)
   error            String?
-  receivedAt       DateTime        @default(now())
-  organization     Organization?   @relation(fields: [organizationId], references: [id])
-  socialAccount    SocialAccount?  @relation(fields: [socialAccountId], references: [id])
+  receivedAt       DateTime       @default(now())
+  organization     Organization?  @relation(fields: [organizationId], references: [id])
+  socialAccount    SocialAccount? @relation(fields: [socialAccountId], references: [id])
 
   @@index([organizationId, receivedAt])
 }
 
 model MessageDelivery {
-  id             String         @id @default(cuid())
-  organizationId String
-  automationId   String
-  commentId      String // comment id da Meta
-  status         DeliveryStatus @default(PENDING)
-  attempts       Int            @default(0)
+  id               String         @id @default(cuid())
+  organizationId   String
+  automationId     String
+  commentId        String // comment id da Meta
+  status           DeliveryStatus @default(PENDING)
+  attempts         Int            @default(0)
   providerResponse Json?
-  error          String?
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
-  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  automation     Automation     @relation(fields: [automationId], references: [id], onDelete: Cascade)
+  error            String?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  organization     Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  automation       Automation     @relation(fields: [automationId], references: [id], onDelete: Cascade)
 
   // Meta permite 1 resposta privada por comentário
   @@unique([commentId])

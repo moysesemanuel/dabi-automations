@@ -19,6 +19,8 @@ const schema = z.object({
   LOGIN_THROTTLE_REDIS_DOWN: z.enum(["local", "closed"]).default("local"),
   // Quem pode informar o IP do cliente via X-Forwarded-For (formato do "trust proxy" do Express).
   TRUST_PROXY: z.string().default("loopback"),
+  // E-mail de ajuda assistida exibido no assistente de conexão. Vazio => o botão de ajuda não aparece.
+  SUPPORT_EMAIL: z.union([z.literal(""), z.string().email()]).default(""),
   WEB_URL: z.string().default("http://localhost:3000"),
   // Registro público desligado por padrão; só o 1º usuário pode se cadastrar.
   // Envio real de respostas privadas. Desligado por padrão: o worker não chama a Meta.
