@@ -8,6 +8,7 @@ import { DashboardController } from "./dashboard/dashboard.controller";
 import { DashboardService } from "./dashboard/dashboard.service";
 import { HealthController } from "./health/health.controller";
 import { InstagramAccountsService } from "./instagram/instagram-accounts.service";
+import { InstagramOAuthController, InstagramOAuthService } from "./instagram/instagram-oauth.controller";
 import { AutomationsController } from "./automations/automations.controller";
 import { AutomationsService } from "./automations/automations.service";
 import { MediaController } from "./media/media.controller";
@@ -23,7 +24,7 @@ import { WebhooksService } from "./webhooks/webhooks.service";
 
 @Module({
   imports: [PrismaModule, JwtModule.register({})],
-  controllers: [HealthController, WebhooksController, AuthController, OrgsController, MediaController, AutomationsController, DashboardController, TeamController, InvitationsController],
-  providers: [WebhooksService, AuthService, LoginThrottle, AuditService, OrgGuard, InstagramAccountsService, MediaService, AutomationsService, DashboardService, TeamService, InvitationsService],
+  controllers: [HealthController, WebhooksController, AuthController, OrgsController, MediaController, AutomationsController, DashboardController, TeamController, InvitationsController, InstagramOAuthController],
+  providers: [WebhooksService, AuthService, LoginThrottle, AuditService, OrgGuard, InstagramAccountsService, MediaService, AutomationsService, DashboardService, TeamService, InvitationsService, InstagramOAuthService],
 })
 export class AppModule {}
