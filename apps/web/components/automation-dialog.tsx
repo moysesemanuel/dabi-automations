@@ -17,6 +17,7 @@ interface Props {
   defaultMediaId?: string;
   defaultOpen?: boolean;
   triggerLabel: string;
+  ariaLabel?: string;
   triggerClass?: string;
 }
 
@@ -35,7 +36,7 @@ export function AutomationDialog(p: Props) {
 
   return (
     <>
-      <button type="button" className={p.triggerClass ?? "btn primary"} onClick={() => ref.current?.showModal()}>{p.triggerLabel}</button>
+      <button type="button" className={p.triggerClass ?? "btn primary"} aria-label={p.ariaLabel} onClick={() => ref.current?.showModal()}>{p.triggerLabel}</button>
       <dialog ref={ref} className="wide" aria-labelledby={`dlg-${p.initial?.id ?? "new"}`} onClose={close}>
         <AutomationForm key={formKey} {...p} onDone={() => ref.current?.close()} />
       </dialog>

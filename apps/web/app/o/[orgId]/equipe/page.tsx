@@ -39,10 +39,10 @@ export default async function TeamPage({ params }: { params: Promise<{ orgId: st
                 <tr key={m.userId}>
                   <td data-label="Pessoa"><strong>{m.name ?? m.email}</strong>{self && <span className="badge accent" style={{ marginInlineStart: ".5rem" }}>você</span>}<div className="cell-sub">{m.email}</div></td>
                   <td data-label="Papel">
-                    {isOwner && m.role !== "OWNER" ? <RoleSelect current={m.role as "ADMIN" | "MEMBER"} action={changeRole.bind(null, orgId, m.userId)} /> : <span className="badge">{roleLabel[m.role]}</span>}
+                    {isOwner && m.role !== "OWNER" ? <RoleSelect current={m.role as "ADMIN" | "MEMBER"} who={m.name ?? m.email} action={changeRole.bind(null, orgId, m.userId)} /> : <span className="badge">{roleLabel[m.role]}</span>}
                   </td>
                   <td data-label="Ações">
-                    {canRemove ? <ConfirmAction label="Remover" title={`Remover ${m.name ?? m.email}?`} body="A pessoa perde o acesso a esta organização na hora. Você pode convidá-la de novo depois." confirmLabel="Remover" action={removeMember.bind(null, orgId, m.userId)} /> : <span className="cell-sub">—</span>}
+                    {canRemove ? <ConfirmAction label="Remover" ariaLabel={`Remover ${m.name ?? m.email}`} title={`Remover ${m.name ?? m.email}?`} body="A pessoa perde o acesso a esta organização na hora. Você pode convidá-la de novo depois." confirmLabel="Remover" action={removeMember.bind(null, orgId, m.userId)} /> : <span className="cell-sub">—</span>}
                   </td>
                 </tr>
               );
@@ -64,7 +64,7 @@ export default async function TeamPage({ params }: { params: Promise<{ orgId: st
                     <td data-label="E-mail">{i.email}</td>
                     <td data-label="Papel"><span className="badge">{roleLabel[i.role]}</span></td>
                     <td data-label="Validade">{i.expired ? <span className="badge bad">Expirado</span> : `até ${formatDate(i.expiresAt)}`}</td>
-                    <td data-label="Ações"><ConfirmAction label="Cancelar convite" title="Cancelar este convite?" body={`O link enviado para ${i.email} deixa de funcionar.`} confirmLabel="Cancelar convite" action={revokeInvitation.bind(null, orgId, i.id)} /></td>
+                    <td data-label="Ações"><ConfirmAction label="Cancelar convite" ariaLabel={`Cancelar convite para ${i.email}`} title="Cancelar este convite?" body={`O link enviado para ${i.email} deixa de funcionar.`} confirmLabel="Cancelar convite" action={revokeInvitation.bind(null, orgId, i.id)} /></td>
                   </tr>
                 ))}
               </tbody>

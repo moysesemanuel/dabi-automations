@@ -63,7 +63,7 @@ export function ConnectWizard({ orgId, initial, initialStep, outcome, save, conn
           {QUESTIONS.map((q) => {
             const g = guideFor(q.key, answers[q.key]);
             return (
-              <fieldset key={q.key} className="question">
+              <div key={q.key} className="question-wrap"><fieldset className="question">
                 <legend>{q.label}</legend>
                 <p className="muted">{q.hint}</p>
                 <div className="segmented" role="radiogroup" aria-label={q.label}>
@@ -72,7 +72,7 @@ export function ConnectWizard({ orgId, initial, initialStep, outcome, save, conn
                   ))}
                 </div>
                 {g && <GuideCard id={g} />}
-              </fieldset>
+              </fieldset></div>
             );
           })}
           {allReady(answers) && <div className="alert ok" role="status">Tudo pronto para conectar.</div>}

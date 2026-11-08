@@ -21,7 +21,7 @@ export default async function OverviewPage({ params }: { params: Promise<{ orgId
 
       {problems > 0 && (
         <p className="alert warn" role="status">
-          {problems} {problems === 1 ? "envio precisa" : "envios precisam"} de atenção. <Link href={`${base}/historico`}>Ver no histórico</Link>
+          {problems} {problems === 1 ? "envio precisa" : "envios precisam"} de atenção. <Link className="action-link" href={`${base}/historico`}>Ver no histórico</Link>
         </p>
       )}
 

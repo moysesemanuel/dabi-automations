@@ -81,7 +81,7 @@ export default async function HistoryPage({ params, searchParams }: { params: Pr
               {h.items.map((i) => (
                 <tr key={i.id}>
                   <td data-label="Quando" className="nowrap">{formatDateTime(i.createdAt)}</td>
-                  <td data-label="Automação"><strong>{i.automation.keyword}</strong>{i.automation.permalink && <div className="cell-sub"><a href={i.automation.permalink} target="_blank" rel="noopener noreferrer">Ver publicação</a></div>}</td>
+                  <td data-label="Automação"><strong>{i.automation.keyword}</strong>{i.automation.permalink && <div className="cell-sub"><a className="action-link" href={i.automation.permalink} target="_blank" rel="noopener noreferrer">Ver publicação<span className="sr-only"> (abre em nova aba)</span></a></div>}</td>
                   <td data-label="Resultado"><StatusBadge status={i.status} /></td>
                   <td data-label="Tentativas">{i.attempts}</td>
                   <td data-label="Detalhes">

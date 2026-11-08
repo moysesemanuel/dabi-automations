@@ -50,7 +50,7 @@ export default async function AutomationsPage({ params, searchParams }: { params
               {automations.map((a) => (
                 <tr key={a.id}>
                   <td data-label="Palavra-chave"><strong>{a.keyword}</strong></td>
-                  <td data-label="Publicação">{a.media.permalink ? <a href={a.media.permalink} target="_blank" rel="noopener noreferrer">Ver publicação</a> : a.media.providerMediaId}</td>
+                  <td data-label="Publicação">{a.media.permalink ? <a className="action-link" href={a.media.permalink} target="_blank" rel="noopener noreferrer">Ver publicação<span className="sr-only"> (abre em nova aba)</span></a> : a.media.providerMediaId}</td>
                   <td data-label="O que faz">
                     <div className="row">
                       {a.dmEnabled && <span className="badge accent">{a.replyFormat === "BUTTON" ? "DM com botão" : "DM com texto"}</span>}
@@ -62,8 +62,8 @@ export default async function AutomationsPage({ params, searchParams }: { params
                   {writable && (
                     <td data-label="Ações">
                       <div className="row">
-                        <AutomationDialog mode="edit" action={updateAutomation.bind(null, orgId, a.id)} initial={a} triggerLabel="Editar" triggerClass="btn small" />
-                        <StatusToggle active={a.status === "ACTIVE"} action={setAutomationStatus.bind(null, orgId, a.id, a.status === "ACTIVE" ? "PAUSED" : "ACTIVE")} />
+                        <AutomationDialog mode="edit" action={updateAutomation.bind(null, orgId, a.id)} initial={a} triggerLabel="Editar" triggerClass="btn small" ariaLabel={`Editar automação ${a.keyword}`} />
+                        <StatusToggle what={a.keyword} active={a.status === "ACTIVE"} action={setAutomationStatus.bind(null, orgId, a.id, a.status === "ACTIVE" ? "PAUSED" : "ACTIVE")} />
                       </div>
                     </td>
                   )}

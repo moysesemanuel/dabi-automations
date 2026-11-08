@@ -1,21 +1,22 @@
 "use client";
-import { useActionState, useEffect, useRef, useState } from "react";
+import { useActionState, useEffect, useId, useRef, useState } from "react";
 import type { InviteState, SimpleState } from "@/app/o/[orgId]/equipe/actions";
 
 /** Botão com confirmação em diálogo nativo (ações que removem acesso). */
-export function ConfirmAction({ label, title, body, confirmLabel, action, className = "btn small danger" }: {
-  label: string; title: string; body: string; confirmLabel: string; className?: string;
+export function ConfirmAction({ label, title, body, confirmLabel, action, ariaLabel, className = "btn small danger" }: {
+  label: string; ariaLabel?: string; title: string; body: string; confirmLabel: string; className?: string;
   action: (prev: SimpleState | undefined) => Promise<SimpleState>;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
   const [state, run, pending] = useActionState(action, undefined);
   useEffect(() => { if (state?.ok) ref.current?.close(); }, [state]);
   return (
     <>
-      <button type="button" className={className} onClick={() => ref.current?.showModal()}>{label}</button>
-      <dialog ref={ref} aria-labelledby="confirm-title">
+      <button type="button" className={className} aria-label={ariaLabel} onClick={() => ref.current?.showModal()}>{label}</button>
+      <dialog ref={ref} aria-labelledby={titleId}>
         <form action={run} className="dialog-body">
-          <h2 id="confirm-title">{title}</h2>
+          <h2 id={titleId}>{title}</h2>
           <p>{body}</p>
           {state?.error && <p className="alert bad" role="alert">{state.error}</p>}
           <div className="actions">
@@ -29,13 +30,14 @@ export function ConfirmAction({ label, title, body, confirmLabel, action, classN
 }
 
 /** Troca de papel: envia ao escolher uma opção diferente. */
-export function RoleSelect({ current, action }: { current: "ADMIN" | "MEMBER"; action: (prev: SimpleState | undefined, form: FormData) => Promise<SimpleState> }) {
+export function RoleSelect({ current, who, action }: { current: "ADMIN" | "MEMBER"; who: string; action: (prev: SimpleState | undefined, form: FormData) => Promise<SimpleState> }) {
   const [state, run, pending] = useActionState(action, undefined);
   const formRef = useRef<HTMLFormElement>(null);
+  const selId = useId();
   return (
     <form ref={formRef} action={run} className="row">
-      <label className="sr-only" htmlFor={`role-${current}`}>Papel</label>
-      <select name="role" defaultValue={current} disabled={pending} onChange={() => formRef.current?.requestSubmit()}>
+      <label className="sr-only" htmlFor={selId}>Papel de {who}</label>
+      <select id={selId} name="role" defaultValue={current} disabled={pending} onChange={() => formRef.current?.requestSubmit()}>
         <option value="MEMBER">Membro</option>
         <option value="ADMIN">Administrador</option>
       </select>
