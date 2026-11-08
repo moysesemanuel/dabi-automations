@@ -12,7 +12,15 @@ export const STATE_TTL_SECONDS = 600;
 export const REQUIRED_PERMISSIONS = ["instagram_basic", "instagram_manage_messages", "instagram_manage_comments"] as const;
 const MAX_ACCOUNTS = 25;
 
-export interface StatePayload { userId: string; organizationId: string }
+export interface StatePayload { userId: string; organizationId: string; provider?: string }
+
+/** Provedor de conexão de contas. Hoje só existe o Unified Login da Meta; novos provedores entram aqui quando forem habilitados. */
+export interface ConnectionProvider {
+  readonly id: string;
+  start(deps: OAuthDeps, input: { userId: string; organizationId: string }): Promise<{ url: string }>;
+  complete(deps: OAuthDeps, input: CompleteInput): Promise<OAuthResult>;
+}
+export const META_UNIFIED_LOGIN = "meta-unified-login";
 
 /** Armazena o `state` só pelo hash. `take` lê E apaga numa operação atômica (uso único). */
 export interface OAuthStateStore {
@@ -85,7 +93,7 @@ export async function startInstagramOAuth(deps: OAuthDeps, input: { userId: stri
 
   const state = randomBytes(32).toString("base64url");
   try {
-    await deps.store.put(hashState(state), { userId: input.userId, organizationId: input.organizationId }, STATE_TTL_SECONDS);
+    await deps.store.put(hashState(state), { userId: input.userId, organizationId: input.organizationId, provider: META_UNIFIED_LOGIN }, STATE_TTL_SECONDS);
   } catch {
     // Sem onde guardar o state não há como validar o retorno: não inicia o fluxo.
     throw new OAuthError("store_unavailable", "Serviço temporariamente indisponível. Tente novamente.");
@@ -105,6 +113,7 @@ export async function completeInstagramOAuth(deps: OAuthDeps, input: CompleteInp
   try { payload = await deps.store.take(hashState(input.state)); }
   catch { throw new OAuthError("store_unavailable", "Serviço temporariamente indisponível. Tente novamente."); }
   if (!payload) return fail("expired"); // inexistente, expirado ou já usado
+  if (payload.provider && payload.provider !== META_UNIFIED_LOGIN) return fail("expired"); // state de outro provedor
   // 2) CSRF / login CSRF: o retorno só vale para o mesmo usuário que iniciou, e o papel é revalidado agora.
   if (payload.userId !== input.userId) return fail("forbidden");
   const orgId = payload.organizationId;
@@ -164,3 +173,6 @@ export async function completeInstagramOAuth(deps: OAuthDeps, input: CompleteInp
     throw e;
   }
 }
+
+/** Único provedor atual: o Unified Login (Facebook Login for Business com config_id). */
+export const metaUnifiedLogin: ConnectionProvider = { id: META_UNIFIED_LOGIN, start: startInstagramOAuth, complete: completeInstagramOAuth };

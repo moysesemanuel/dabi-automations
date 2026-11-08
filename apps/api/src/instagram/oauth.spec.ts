@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { randomBytes } from "node:crypto";
 import { decryptToken } from "@dabi/config";
-import { MemoryOAuthStateStore, OAuthError, REQUIRED_PERMISSIONS, completeInstagramOAuth, startInstagramOAuth, type OAuthDeps } from "./oauth";
+import { META_UNIFIED_LOGIN, MemoryOAuthStateStore, metaUnifiedLogin, OAuthError, REQUIRED_PERMISSIONS, completeInstagramOAuth, startInstagramOAuth, type OAuthDeps } from "./oauth";
 
 const KEY = randomBytes(32).toString("base64");
 const SECRET = "app-secret-XYZ";
@@ -86,6 +86,22 @@ describe("startInstagramOAuth", () => {
     const s = setup();
     s.deps.store = { put: async () => { throw new Error("redis"); }, take: async () => null };
     await expect(startInstagramOAuth(s.deps, { userId: "u1", organizationId: "org1" })).rejects.toBeInstanceOf(OAuthError);
+  });
+});
+
+describe("ConnectionProvider", () => {
+  it("o provedor atual é o Unified Login e grava seu id no state", async () => {
+    const s = setup();
+    expect(metaUnifiedLogin.id).toBe(META_UNIFIED_LOGIN);
+    const { url } = await metaUnifiedLogin.start(s.deps, { userId: "u1", organizationId: "org1" });
+    const state = new URL(url).searchParams.get("state")!;
+    expect((await metaUnifiedLogin.complete(s.deps, { userId: "u1", state, code: CODE })).outcome).toBe("connected");
+  });
+  it("state emitido por outro provedor é recusado", async () => {
+    const s = setup();
+    await s.deps.store.put("ig-oauth:" + (await import("node:crypto")).createHash("sha256").update("outro").digest("hex"), { userId: "u1", organizationId: "org1", provider: "outro-provedor" }, 600);
+    expect((await metaUnifiedLogin.complete(s.deps, { userId: "u1", state: "outro", code: CODE })).outcome).toBe("expired");
+    expect(s.calls).toHaveLength(0);
   });
 });
 

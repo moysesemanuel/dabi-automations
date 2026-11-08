@@ -6,7 +6,7 @@ import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import { ZodPipe } from "../auth/zod.pipe";
 import { OrgGuard, Roles } from "../orgs/org.guard";
 import { PrismaService } from "../prisma/prisma.module";
-import { OAuthError, completeInstagramOAuth, resolveRedirectUri, startInstagramOAuth, type OAuthDeps, type OAuthStateStore, type StatePayload } from "./oauth";
+import { OAuthError, metaUnifiedLogin, resolveRedirectUri, type ConnectionProvider, type OAuthDeps, type OAuthStateStore, type StatePayload } from "./oauth";
 
 /** State no Redis: SET com expiração e GETDEL (atômico) para uso único. Se o Redis cair, o fluxo não começa. */
 class RedisOAuthStateStore implements OAuthStateStore {
@@ -27,6 +27,8 @@ class RedisOAuthStateStore implements OAuthStateStore {
 export class InstagramOAuthService {
   private log = new Logger("InstagramOAuth");
   private store: OAuthStateStore = new RedisOAuthStateStore();
+  /** Provedor ativo. Hoje fixo no Unified Login. */
+  private provider: ConnectionProvider = metaUnifiedLogin;
   constructor(private prisma: PrismaService) {}
 
   private deps(): OAuthDeps {
@@ -49,11 +51,11 @@ export class InstagramOAuthService {
     }
   }
 
-  start(userId: string, organizationId: string) { return this.guard(() => startInstagramOAuth(this.deps(), { userId, organizationId })); }
+  start(userId: string, organizationId: string) { return this.guard(() => this.provider.start(this.deps(), { userId, organizationId })); }
 
   complete(userId: string, dto: CompleteInstagramOAuthDto) {
     return this.guard(async () => {
-      const r = await completeInstagramOAuth(this.deps(), { userId, ...dto });
+      const r = await this.provider.complete(this.deps(), { userId, ...dto });
       // Só o resultado, nunca code/token/secret.
       this.log.log(`oauth: ${r.outcome} (conectadas=${r.connected.length}, ignoradas=${r.skipped.length})`);
       return r;
