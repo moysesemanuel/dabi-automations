@@ -8,6 +8,10 @@ const schema = z.object({
   META_APP_SECRET: z.string().min(1),
   META_WEBHOOK_VERIFY_TOKEN: z.string().min(8),
   META_GRAPH_VERSION: z.string().default("v23.0"),
+  // Unified Login (Facebook Login for Business): id da configuração criada no painel da Meta.
+  META_LOGIN_CONFIG_ID: z.string().default(""),
+  // URL HTTPS de retorno do OAuth do Instagram. Vazio => WEB_URL + /instagram/callback.
+  INSTAGRAM_OAUTH_REDIRECT_URI: z.string().default(""),
   TOKEN_ENCRYPTION_KEY: z.string().min(1),
   JWT_SECRET: z.string().min(16),
   API_PORT: z.coerce.number().default(3001),

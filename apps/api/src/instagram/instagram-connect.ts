@@ -1,7 +1,9 @@
 import { encryptToken } from "@dabi/config";
 import { MetaApiError, graphGetJson, type LoginMode } from "./graph";
 
-export class ConnectError extends MetaApiError {}
+export class ConnectError extends MetaApiError {
+  constructor(message: string, readonly code?: "other_organization") { super(message); }
+}
 export type { LoginMode };
 
 export interface ConnectInput {
@@ -77,13 +79,17 @@ export async function connectInstagramAccount(deps: ConnectDeps, input: ConnectI
     });
     // Uma conta Instagram só pode pertencer a uma organização: impede "roubo" entre clientes.
     if (existing && existing.organizationId !== input.organizationId)
-      throw new ConnectError("Esta conta já está conectada a outra organização.");
+      throw new ConnectError("Esta conta já está conectada a outra organização.", "other_organization");
 
     const account = await tx.socialAccount.upsert({
       where: { provider_providerAccountId: { provider: "INSTAGRAM", providerAccountId: identity.id } },
       create: { organizationId: input.organizationId, provider: "INSTAGRAM", providerAccountId: identity.id, username: identity.username },
       update: { username: identity.username },
     });
+    // Corrida: duas organizações conectando a mesma conta ao mesmo tempo. Quem perdeu a criação
+    // não pode sobrescrever a credencial do vencedor (a transação desfaz tudo).
+    if (account.organizationId !== input.organizationId)
+      throw new ConnectError("Esta conta já está conectada a outra organização.", "other_organization");
     const cred = { encryptedToken: enc.encrypted, tokenIv: enc.iv, tokenTag: enc.tag, loginMode: mode, scopes, expiresAt: input.expiresAt ?? null };
     await tx.socialCredential.upsert({
       where: { socialAccountId: account.id },

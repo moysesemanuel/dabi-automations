@@ -91,3 +91,18 @@ describe("connectInstagramAccount", () => {
     await expect(setup().run({ organizationId: "nao-existe" })).rejects.toThrow("Organização não encontrada");
   });
 });
+
+describe("connectInstagramAccount (corrida entre organizações)", () => {
+  it("se outra organização criou a conta no meio da transação, não sobrescreve a credencial", async () => {
+    const s = setup();
+    // findUnique ainda vê "nada", mas o upsert devolve a conta que já pertence a outra org
+    s.prisma.$transaction = (fn: any) => fn({
+      socialAccount: { findUnique: async () => null, upsert: async () => ({ id: "acc9", organizationId: "orgB" }) },
+      socialCredential: { upsert: async () => { s.db.creds.push("escrito"); } },
+      auditLog: { create: async () => { s.db.audits.push("x"); } },
+    });
+    await expect(s.run()).rejects.toMatchObject({ code: "other_organization" });
+    expect(s.db.creds).toHaveLength(0);
+    expect(s.db.audits).toHaveLength(0);
+  });
+});

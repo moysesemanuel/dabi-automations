@@ -7,7 +7,8 @@ export class MetaApiError extends Error {}
 export const graphHost = (mode: LoginMode) =>
   mode === "FACEBOOK" ? "https://graph.facebook.com" : "https://graph.instagram.com";
 
-export async function graphGetJson(url: string, token: string, fetchImpl: typeof fetch = fetch): Promise<any> {
+/** `secrets`: valores que nunca podem aparecer em mensagens de erro (token, client_secret, code). */
+export async function graphGetJson(url: string, secrets: string | string[], fetchImpl: typeof fetch = fetch): Promise<any> {
   let res: Response;
   try {
     res = await fetchImpl(url, { signal: AbortSignal.timeout(10_000) });
@@ -16,7 +17,9 @@ export async function graphGetJson(url: string, token: string, fetchImpl: typeof
   }
   const body: any = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const raw = String(body?.error?.message ?? "sem detalhes").split(token).join("[token]").slice(0, 200);
+    let raw = String(body?.error?.message ?? "sem detalhes");
+    for (const sec of [secrets].flat()) if (sec) raw = raw.split(sec).join("[oculto]");
+    raw = raw.slice(0, 200);
     const code = body?.error?.code != null ? `, código ${body.error.code}` : "";
     throw new MetaApiError(`Meta rejeitou a requisição (HTTP ${res.status}${code}): ${raw}`);
   }

@@ -117,3 +117,12 @@ export type AcceptInvitationNewUserDto = z.infer<typeof acceptInvitationNewUserS
 
 export const updateMemberRoleSchema = z.object({ role: grantableRoleSchema });
 export type UpdateMemberRoleDto = z.infer<typeof updateMemberRoleSchema>;
+
+/** Retorno do OAuth do Instagram (o web repassa o que a Meta enviou na query). */
+export const completeInstagramOAuthSchema = z.object({
+  state: z.string().min(1).max(200),
+  code: z.string().min(1).max(2000).optional(),
+  error: z.string().max(100).optional(),
+  errorReason: z.string().max(100).optional(),
+});
+export type CompleteInstagramOAuthDto = z.infer<typeof completeInstagramOAuthSchema>;
