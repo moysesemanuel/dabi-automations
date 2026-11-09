@@ -1,7 +1,7 @@
 import { commentEventJobSchema, normalizeKeyword, validateReplyShape, classifyMetaError, flagsCredentialForReconnect, DEFAULT_BUTTON_TITLE, type CommentEventJob } from "@dabi/contracts";
 import { decryptToken } from "@dabi/config";
 import { safeErrorText } from "./safe-error";
-import { claimReservation, cancelIfTombstoned } from "./claim";
+import { claimReservation, cancelIfTombstoned, holdIfRestoreHold } from "./claim";
 
 /** Resposta privada só é aceita pela Meta até 7 dias após o comentário. */
 export const REPLY_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
@@ -206,6 +206,7 @@ async function runPublicReply(ctx: Ctx): Promise<{ status: Status; error: string
   if (!(await claimReservation(prisma, "PublicReply", row.id))) {
     // recusado: outra execução assumiu OU o comentário está protegido por tombstone (retenção); neste caso encerra a reserva
     if (await cancelIfTombstoned(prisma, "PublicReply", row.id, data.commentId, (deps.now ?? (() => new Date()))())) return { status: "CANCELED" as any, error: "dropped.tombstone" };
+    await holdIfRestoreHold(prisma, "PublicReply", row.id);
     return { status: "UNKNOWN", error: "outra execução assumiu a resposta pública" };
   }
 
@@ -327,7 +328,7 @@ async function runDm(ctx: Ctx): Promise<DmResult> {
   // 2) Claim atômico + contador gravado antes do envio: dois workers nunca enviam o mesmo comentário.
   if (!(await claimReservation(prisma, "MessageDelivery", delivery.id))) {
     // recusado: outra execução assumiu OU o comentário está protegido por tombstone (retenção); neste caso encerra a reserva
-    await cancelIfTombstoned(prisma, "MessageDelivery", delivery.id, data.commentId, now());
+    if (!(await cancelIfTombstoned(prisma, "MessageDelivery", delivery.id, data.commentId, now()))) await holdIfRestoreHold(prisma, "MessageDelivery", delivery.id);
     return stop();
   }
 

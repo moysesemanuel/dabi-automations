@@ -1,6 +1,6 @@
 import { parseCommentEventJob, type CommentEventJob, type CommentJobOutcome, type CommentJobResult } from "@dabi/contracts";
 import { processCommentEvent, type Deps } from "./process-comment";
-import { invalidJobError, safeErrorText, toSafeJobError } from "./safe-error";
+import { SafeJobError, invalidJobError, safeErrorText, toSafeJobError } from "./safe-error";
 
 type Process = (deps: Deps, job: CommentEventJob) => Promise<unknown>;
 
@@ -53,6 +53,10 @@ export async function handleCommentJob(deps: Deps, raw: unknown, run: Process = 
   try {
     const parsed = parseCommentEventJob(raw);
     if (parsed.kind === "invalid") throw invalidJobError(parsed.reason);
+    // Bloqueio pós-restauração: enquanto a reconciliação não termina, NENHUM processamento (nem leitura na Meta). Erro retentável e
+    // seguro; o evento continua RECEIVED e nada é reservado.
+    const hold = await deps.prisma.retentionLease?.findUnique?.({ where: { id: "restore-hold" } });
+    if (hold?.owner) throw new SafeJobError("held:restore-hold");
 
     if (parsed.kind === "legacy") {
       if (await tombstoned(deps, parsed.job.commentId)) {

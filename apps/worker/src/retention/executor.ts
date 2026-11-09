@@ -17,8 +17,10 @@ import { purgeCommentUnit } from "./purge";
 import type { RetentionPlan } from "./authorization";
 import type { DeliveryState } from "../delivery-expiry";
 
-export interface LedgerEntry { runId: string; commentIds: string[]; ttlSeconds: number }
-export interface LedgerLike { intent(e: LedgerEntry): Promise<void>; done(e: LedgerEntry): Promise<void> }
+export interface LedgerItem { commentId: string; event: boolean; records: boolean }
+export interface LedgerEntry { runId: string; items: LedgerItem[]; ttlSeconds: number }
+/** Registro durável e independente do banco operacional. `intent` ANTES da transação, `done` DEPOIS do commit. */
+export interface LedgerLike { intent(e: LedgerEntry): Promise<void>; done(e: LedgerEntry): Promise<void>; head?(): Promise<{ seq: number; hash: string } | null> }
 
 export interface ExecDeps {
   prisma: any;
@@ -118,7 +120,8 @@ export async function runRetention(deps: ExecDeps, plan: Extract<RetentionPlan, 
   const now0 = nowFn();
   const run = await prisma.retentionRun.create({ data: { mode: execute ? "EXECUTE" : "DRY_RUN", limits: { batchSize: plan.batchSize, maxRows: plan.maxRows } } });
   const finish = async (status: RunReport["status"], abortReason?: string, extra: Partial<{ leaseEpoch: number }> = {}): Promise<RunReport> => {
-    await prisma.retentionRun.update({ where: { id: run.id }, data: { status, finishedAt: new Date(), counts: counts as any, error: abortReason ?? null, ...extra } });
+    const ledgerHead = execute && deps.ledger?.head ? await deps.ledger.head().catch(() => null) : null;
+    await prisma.retentionRun.update({ where: { id: run.id }, data: { status, finishedAt: new Date(), counts: { ...counts, ...(ledgerHead ? { ledgerHead } : {}) } as any, error: abortReason ?? null, ...extra } });
     if (execute) await prisma.auditLog.create({ data: { action: "retention.run", entityType: "RetentionRun", entityId: run.id, metadata: { status, rows: counts.rows, skipped: counts.skipped } as any } }).catch(() => {});
     return { runId: run.id, mode: execute ? "EXECUTE" : "DRY_RUN", status, abortReason, counts, batches, sampleInternalIds: samples };
   };
@@ -127,6 +130,14 @@ export async function runRetention(deps: ExecDeps, plan: Extract<RetentionPlan, 
   let lease: LeaseHandle | null = null; let hb: { stop: () => void } | null = null; let lost = "";
   try {
     if (execute) {
+      // Depois de uma RESTAURAÇÃO o banco pode estar atrás do registro durável: sem reconciliar, tombstones criados depois do backup
+      // não existem. Recusa executar até a reconciliação (ver restore.ts). O gate compara o head do ledger com o último head gravado.
+      if (deps.ledger?.head) {
+        const head = await deps.ledger.head();
+        const last = await prisma.retentionRun.findFirst({ where: { mode: "EXECUTE", status: { in: ["COMPLETED", "PARTIAL"] } }, orderBy: { startedAt: "desc" }, select: { counts: true } });
+        const known = Number((last?.counts as any)?.ledgerHead?.seq ?? 0);
+        if (head && head.seq > known) return await finish("ABORTED", `o registro durável (seq ${head.seq}) está à frente do banco (seq ${known}): reconciliar após restauração antes de executar`);
+      }
       lease = await acquireLease(prisma, deps.owner ?? `retention-${process.pid}`, deps.leaseTtlSeconds ?? 60, deps.leaseId);
       if (!lease) return await finish("ABORTED", "outra execução da retenção está ativa (trava não adquirida)");
       hb = startHeartbeat(prisma, lease, deps.leaseTtlSeconds ?? 60, (why) => { lost = why; }, deps.heartbeatEveryMs);
@@ -168,12 +179,12 @@ export async function runRetention(deps: ExecDeps, plan: Extract<RetentionPlan, 
       if (deps.isPaused && (await deps.isPaused())) { counts.skipped.stale += batch.length; return false; }
       if (lost) return false;
       if (purge && deps.ledger) {
-        try { await deps.ledger.intent({ runId: run.id, commentIds: batch.map((p) => p.snap.commentId), ttlSeconds: L.tombstoneTtlSeconds }); }
+        try { await deps.ledger.intent({ runId: run.id, ttlSeconds: L.tombstoneTtlSeconds, items: batch.flatMap((p) => p.actions.filter((a) => a.kind === "purge").map((a) => ({ commentId: p.snap.commentId, event: (a as any).parts.event && Boolean(p.snap.event), records: (a as any).parts.records }))) }); }
         catch { counts.skipped.ledgerBlocked += batch.length; return true; } // registro durável indisponível: NÃO exclui (continua para outras fases)
       }
       const tx = await prisma.$transaction(async (t: any) => {
         await assertLeaseInTx(t, lease!);
-        let rows = 0; const done: string[] = []; const local = emptyCounts();
+        let rows = 0; const done: LedgerItem[] = []; const local = emptyCounts();
         for (const p of batch) {
           const fresh = await lockAndLoad(t, p.snap.commentId);
           if (fresh.busy) { local.skipped.busy++; continue; }
@@ -190,7 +201,7 @@ export async function runRetention(deps: ExecDeps, plan: Extract<RetentionPlan, 
               if (upd.count === 1) { rows++; local.rows.closedReview++; } else local.skipped.stale++;
             } else {
               const res = await purgeCommentUnit(t, p.snap.commentId, a.parts, L.tombstoneTtlSeconds);
-              rows += res.events + res.deliveries + res.replies; local.rows.purgedEvents += res.events; local.rows.purgedDeliveries += res.deliveries; local.rows.purgedReplies += res.replies; done.push(p.snap.commentId);
+              rows += res.events + res.deliveries + res.replies; local.rows.purgedEvents += res.events; local.rows.purgedDeliveries += res.deliveries; local.rows.purgedReplies += res.replies; done.push({ commentId: p.snap.commentId, event: a.parts.event && res.events > 0, records: a.parts.records });
             }
           }
         }
@@ -199,7 +210,7 @@ export async function runRetention(deps: ExecDeps, plan: Extract<RetentionPlan, 
       batches.push(tx.rows);
       for (const k of Object.keys(tx.local.rows) as (keyof RunCounts["rows"])[]) counts.rows[k] += tx.local.rows[k];
       counts.skipped.busy += tx.local.skipped.busy; counts.skipped.stale += tx.local.skipped.stale;
-      if (purge && deps.ledger && tx.done.length) await deps.ledger.done({ runId: run.id, commentIds: tx.done, ttlSeconds: L.tombstoneTtlSeconds }).catch(() => {});
+      if (purge && deps.ledger && tx.done.length) await deps.ledger.done({ runId: run.id, items: tx.done, ttlSeconds: L.tombstoneTtlSeconds }).catch(() => { counts.skipped.ledgerBlocked += 0; });
       for (const p of batch) if (samples.length < 5) samples.push(...p.ids.slice(0, 1));
       return true;
     };

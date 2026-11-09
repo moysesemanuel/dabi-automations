@@ -17,8 +17,8 @@ export async function claimReservation(prisma: any, table: ClaimTable, id: strin
     return r.count === 1;
   }
   const n: number = table === "MessageDelivery"
-    ? await prisma.$executeRaw`UPDATE "MessageDelivery" SET "attempts" = 1, "updatedAt" = NOW() WHERE "id" = ${id} AND "status" = 'PENDING' AND "attempts" = 0 AND NOT EXISTS (SELECT 1 FROM "IdempotencyTombstone" t WHERE t."commentId" = "MessageDelivery"."commentId" AND t."expiresAt" > NOW())`
-    : await prisma.$executeRaw`UPDATE "PublicReply" SET "attempts" = 1, "updatedAt" = NOW() WHERE "id" = ${id} AND "status" = 'PENDING' AND "attempts" = 0 AND NOT EXISTS (SELECT 1 FROM "IdempotencyTombstone" t WHERE t."commentId" = "PublicReply"."commentId" AND t."expiresAt" > NOW())`;
+    ? await prisma.$executeRaw`UPDATE "MessageDelivery" SET "attempts" = 1, "updatedAt" = NOW() WHERE "id" = ${id} AND "status" = 'PENDING' AND "attempts" = 0 AND NOT EXISTS (SELECT 1 FROM "IdempotencyTombstone" t WHERE t."commentId" = "MessageDelivery"."commentId" AND t."expiresAt" > NOW()) AND NOT EXISTS (SELECT 1 FROM "RetentionLease" h WHERE h."id" = 'restore-hold' AND h."owner" IS NOT NULL)`
+    : await prisma.$executeRaw`UPDATE "PublicReply" SET "attempts" = 1, "updatedAt" = NOW() WHERE "id" = ${id} AND "status" = 'PENDING' AND "attempts" = 0 AND NOT EXISTS (SELECT 1 FROM "IdempotencyTombstone" t WHERE t."commentId" = "PublicReply"."commentId" AND t."expiresAt" > NOW()) AND NOT EXISTS (SELECT 1 FROM "RetentionLease" h WHERE h."id" = 'restore-hold' AND h."owner" IS NOT NULL)`;
   return n === 1;
 }
 
@@ -31,5 +31,17 @@ export async function cancelIfTombstoned(prisma: any, table: ClaimTable, id: str
   if (!t || new Date(t.expiresAt).getTime() <= now.getTime()) return false;
   const model = table === "MessageDelivery" ? "messageDelivery" : "publicReply";
   const r = await prisma[model].updateMany({ where: { id, status: "PENDING", attempts: 0 }, data: { status: "CANCELED", error: "dropped.tombstone" } });
+  return r.count === 1;
+}
+
+/**
+ * Claim recusado pelo BLOQUEIO PÓS-RESTAURAÇÃO (restore-hold): a reserva (PENDING, attempts 0: a Meta não foi chamada) vira HELD, para
+ * poder ser retomada depois da reconciliação, em vez de ficar presa em PENDING. Compare-and-set. Só age se o bloqueio está ativo.
+ */
+export async function holdIfRestoreHold(prisma: any, table: ClaimTable, id: string): Promise<boolean> {
+  const h = await prisma.retentionLease?.findUnique?.({ where: { id: "restore-hold" } });
+  if (!h || !h.owner) return false;
+  const model = table === "MessageDelivery" ? "messageDelivery" : "publicReply";
+  const r = await prisma[model].updateMany({ where: { id, status: "PENDING", attempts: 0 }, data: { status: "HELD", error: "restore.hold" } });
   return r.count === 1;
 }
