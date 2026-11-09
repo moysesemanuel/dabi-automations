@@ -319,3 +319,58 @@ model AuditLog {
 
   @@index([organizationId, createdAt])
 }
+
+// Proteção mínima contra reprocessar o MESMO comentário depois que o evento/a entrega foram apagados (E3).
+// Só o ID do comentário: nunca texto, username ou ID do autor. Vale até expiresAt (retenção inicial proposta: 180 dias);
+// depois disso NÃO há garantia de idempotência. commentId é identificador indireto (dado pseudonimizado).
+model IdempotencyTombstone {
+  id        String   @id @default(cuid())
+  commentId String   @unique
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+
+  @@index([expiresAt])
+}
+
+enum DeletionKind {
+  ACCOUNT_DISCONNECT
+  ACCOUNT_DELETE
+  ORG_DELETE
+  USER_DELETE
+  SUBJECT_ERASE
+  META_CALLBACK
+}
+
+enum DeletionStatus {
+  REQUESTED
+  IN_PROGRESS
+  COMPLETED
+  PARTIAL
+  FAILED
+  REJECTED
+  NEEDS_REVIEW
+  CANCELED
+}
+
+// Registro operacional MÍNIMO de pedidos de desconexão/exclusão. Sem dado pessoal: nada de e-mail, username,
+// texto ou token. organizationId/requestedById são IDs internos SEM chave estrangeira (de propósito: o registro
+// sobrevive à exclusão da organização e do usuário). subjectHmac = HMAC com chave própria, nunca SHA-256 simples.
+model DeletionRequest {
+  id               String         @id @default(cuid())
+  kind             DeletionKind
+  status           DeletionStatus @default(REQUESTED)
+  confirmationCode String         @unique
+  idempotencyKey   String?        @unique
+  organizationId   String?
+  requestedById    String?
+  subjectHmac      String?
+  requestedAt      DateTime       @default(now())
+  scheduledFor     DateTime?
+  completedAt      DateTime?
+  summary          Json?
+  error            String?
+  updatedAt        DateTime       @updatedAt
+
+  @@index([status, requestedAt])
+  @@index([organizationId])
+}
