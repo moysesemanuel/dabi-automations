@@ -252,3 +252,89 @@ export function classifyMetaError(e: MetaErrorInput): MetaErrorKind {
 
 /** Só INVALID_CREDENTIAL pede reconexão da credencial. Nenhuma outra classe a derruba. */
 export const flagsCredentialForReconnect = (k: MetaErrorKind) => k === "INVALID_CREDENTIAL";
+
+// ───────────────────────── Estado exibido derivado do estado real (E2/P1 e observabilidade) ─────────────────────────
+
+/**
+ * Razões de NÍVEL DE EVENTO: as que não existem em nenhuma entrega. São as únicas que o worker grava em
+ * `AutomationEvent.error`, sempre como CÓDIGO estável. O estado de envio NUNCA é copiado para o evento: é derivado, na
+ * leitura, de `MessageDelivery` e `PublicReply` (que são a verdade), por `deriveEventView`.
+ */
+export const EVENT_REASONS = {
+  "needs_review.ig_account_missing": { kind: "needs_review", severity: "attention", label: "Requer análise: conta não identificada", detail: "O evento não trouxe uma conta do Instagram conectada. Nada foi enviado." },
+  "needs_review.association_mismatch": { kind: "needs_review", severity: "attention", label: "Requer análise: associação inconsistente", detail: "A conta ou a organização gravada no evento não bate com a conta encontrada. Nada foi enviado." },
+  "needs_review.payload_without_comment": { kind: "needs_review", severity: "attention", label: "Requer análise: comentário não identificado", detail: "O conteúdo recebido não permitiu identificar o comentário. Nada foi enviado." },
+  "dropped.tombstone": { kind: "dropped", severity: "info", label: "Descartado: comentário já tratado", detail: "Este comentário já tinha sido tratado e seus registros foram apagados. Nada foi enviado de novo." },
+  "ignored.account_unknown": { kind: "ignored", severity: "info", label: "Ignorado: conta desconhecida", detail: "A conta do Instagram do evento não está conectada ao DaBiChat." },
+  "ignored.own_comment": { kind: "ignored", severity: "info", label: "Ignorado: comentário da própria conta", detail: "Comentários da própria conta nunca recebem resposta automática." },
+  "ignored.no_automation": { kind: "ignored", severity: "info", label: "Ignorado: nenhuma automação correspondente", detail: "Nenhuma automação ativa casou com a publicação e a palavra-chave." },
+  "ignored.no_action_enabled": { kind: "ignored", severity: "info", label: "Ignorado: nenhuma ação habilitada", detail: "A automação não tem DM nem resposta pública habilitadas." },
+  "failed.org_mismatch": { kind: "failed", severity: "error", label: "Falhou: organização divergente", detail: "A organização da automação difere da conta. Nada foi enviado." },
+  "failed.delivery_foreign": { kind: "failed", severity: "error", label: "Falhou: entrega de outra automação", detail: "Já existia uma entrega deste comentário ligada a outra automação ou organização. Nada foi enviado." },
+} as const;
+export type EventReasonCode = keyof typeof EVENT_REASONS;
+
+/** Textos antigos (anteriores aos códigos) que continuam reconhecidos nos registros já gravados. */
+const LEGACY_REASON_TEXT = new Map<string, EventReasonCode>([
+  ["conta desconhecida", "ignored.account_unknown"],
+  ["comentário da própria conta", "ignored.own_comment"],
+  ["nenhuma ação habilitada na automação", "ignored.no_action_enabled"],
+  ["organização da automação difere da conta", "failed.org_mismatch"],
+  ["entrega existente pertence a outra automação/organização", "failed.delivery_foreign"],
+]);
+
+/** Código da razão de evento a partir da nota gravada (código novo ou texto antigo). Notas derivadas de entrega → null. */
+export function eventReasonFromNote(note: string | null | undefined): EventReasonCode | null {
+  if (!note) return null;
+  if (Object.prototype.hasOwnProperty.call(EVENT_REASONS, note)) return note as EventReasonCode;
+  return LEGACY_REASON_TEXT.get(note) ?? null; // Map: chaves como "toString" ou "__proto__" não herdam nada
+}
+
+export type DeliveryLike = { status: DeliveryStatusValue; attempts?: number; error?: string | null };
+export type DeliveryStatusValue = "PENDING" | "HELD" | "SENT" | "FAILED" | "UNKNOWN" | "CANCELED";
+
+export type ViewState = "needs_review" | "dropped" | "ignored" | "failed" | "sent" | "unknown" | "held" | "canceled" | "pending" | "received";
+export interface EventView {
+  state: ViewState;
+  severity: "info" | "attention" | "error";
+  headline: string;
+  detail: string;
+  /** Razão de nível de evento, quando houver. */
+  reason?: EventReasonCode;
+}
+
+/**
+ * Apresentação de cada estado de ENVIO. Regras de linguagem:
+ * - HELD: retido por segurança/configuração; nada foi enviado.
+ * - UNKNOWN: resultado NÃO confirmado; a mensagem pode ou não ter sido entregue. NUNCA apresentar como "não enviada".
+ * - CANCELED: decisão nossa de não enviar; não é confirmação da Meta.
+ */
+const DELIVERY_VIEW: Record<DeliveryStatusValue, { state: ViewState; severity: EventView["severity"]; headline: string; detail: string }> = {
+  SENT: { state: "sent", severity: "info", headline: "Enviada", detail: "A Meta confirmou o envio." },
+  FAILED: { state: "failed", severity: "error", headline: "Falhou", detail: "A Meta recusou ou a automação era inválida. Nada foi enviado." },
+  UNKNOWN: { state: "unknown", severity: "attention", headline: "Resultado não confirmado", detail: "Não sabemos se a mensagem foi entregue: ela pode ter sido enviada. Confira no Instagram. O DaBiChat não reenvia automaticamente." },
+  HELD: { state: "held", severity: "attention", headline: "Retida", detail: "O envio está retido pelas configurações de segurança (envio desligado ou credencial a reconectar). Nada foi enviado." },
+  CANCELED: { state: "canceled", severity: "info", headline: "Cancelada", detail: "Decidimos não enviar. Isto não é uma confirmação da Meta de que nada saiu." },
+  PENDING: { state: "pending", severity: "info", headline: "Aguardando", detail: "Ainda sendo processada." },
+};
+
+/**
+ * Estado exibido de um evento, DERIVADO do estado real da entrega (DM) e da resposta pública. Nunca lê notas de envio
+ * gravadas no evento: só a razão de nível de evento (código), que é a única coisa que o evento sabe sozinho.
+ * Prioridade: razão de evento → DM → resposta pública → aguardando processamento.
+ */
+export function deriveEventView(ev: { status: string; error?: string | null }, dm?: DeliveryLike | null, pub?: DeliveryLike | null): EventView {
+  const reason = eventReasonFromNote(ev.error);
+  if (reason) {
+    const r = EVENT_REASONS[reason];
+    const state: ViewState = r.kind;
+    return { state, severity: r.severity, headline: r.label, detail: r.detail, reason };
+  }
+  const main = dm ?? pub;
+  if (main) {
+    const v = DELIVERY_VIEW[main.status];
+    const extra = dm && pub ? ` Resposta pública: ${DELIVERY_VIEW[pub.status].headline.toLowerCase()}.` : "";
+    return { state: v.state, severity: v.severity, headline: v.headline, detail: v.detail + extra };
+  }
+  return { state: "received", severity: "info", headline: "Recebido", detail: "Aguardando processamento." };
+}
