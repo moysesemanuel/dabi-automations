@@ -3,11 +3,16 @@
 //   TEST_DATABASE_URL=postgresql://dabi:dabi@localhost:5440/dabi_test pnpm --filter @dabi/worker test
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { PrismaClient } from "@prisma/client";
+import { REQUIRED, missingInfra } from "./test-infra";
 
 const url = process.env.TEST_DATABASE_URL;
 const run = `e1${Date.now()}`;
 
-describe.skipIf(!url)("E1: schema aditivo em PostgreSQL real", () => {
+const missing = missingInfra({ pg: true });
+// No CI (ou REQUIRE_INTEGRATION=1) a infraestrutura é obrigatória: se faltar, o teste FALHA em vez de ser pulado.
+if (REQUIRED && missing) describe("infraestrutura obrigatória (E1)", () => { it(`precisa de ${missing}`, () => { throw new Error(`faltam ${missing}: no CI os testes de integração são obrigatórios`); }); });
+
+describe.skipIf(Boolean(missing))("E1: schema aditivo em PostgreSQL real", () => {
   const prisma = new PrismaClient({ datasourceUrl: url });
   let orgId = "";
   let accountId = "";

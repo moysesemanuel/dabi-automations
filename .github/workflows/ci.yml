@@ -14,7 +14,25 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
+    # PostgreSQL e Redis REAIS, descartáveis e exclusivos desta execução (nunca dados de desenvolvimento ou produção).
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env: { POSTGRES_USER: dabi, POSTGRES_PASSWORD: dabi, POSTGRES_DB: dabi_test }
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U dabi -d dabi_test" --health-interval 5s --health-timeout 5s --health-retries 12
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      # Os testes de integração são OBRIGATÓRIOS aqui: sem a infraestrutura eles FALHAM, nunca são pulados.
+      REQUIRE_INTEGRATION: "1"
+      TEST_DATABASE_URL: postgresql://dabi:dabi@localhost:5432/dabi_test
+      TEST_REDIS_URL: redis://localhost:6379
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -22,6 +40,9 @@ jobs:
         with: { node-version: 22, cache: pnpm }
       - run: pnpm install --frozen-lockfile
       - run: pnpm db:generate
+      # Aplica TODAS as migrações (cadeia completa) no banco de teste do CI: valida que elas rodam do zero.
+      - run: pnpm --filter @dabi/database exec prisma migrate deploy
+        env: { DATABASE_URL: "postgresql://dabi:dabi@localhost:5432/dabi_test" }
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm --filter @dabi/web build

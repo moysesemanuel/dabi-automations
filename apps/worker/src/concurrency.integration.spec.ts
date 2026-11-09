@@ -4,13 +4,18 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { PrismaClient } from "@prisma/client";
 import { encryptToken } from "@dabi/config";
 import { processCommentEvent, resumePending, type Deps } from "./process-comment";
+import { REQUIRED, missingInfra } from "./test-infra";
 
 const url = process.env.TEST_DATABASE_URL;
 const KEY = Buffer.alloc(32, 9).toString("base64");
 const NOW = new Date("2026-11-07T12:00:00Z");
 const run = `it${Date.now()}`;
 
-describe.skipIf(!url)("concorrência em PostgreSQL real", () => {
+const missing = missingInfra({ pg: true });
+// No CI (ou REQUIRE_INTEGRATION=1) a infraestrutura é obrigatória: se faltar, o teste FALHA em vez de ser pulado.
+if (REQUIRED && missing) describe("infraestrutura obrigatória (concorrência)", () => { it(`precisa de ${missing}`, () => { throw new Error(`faltam ${missing}: no CI os testes de integração são obrigatórios`); }); });
+
+describe.skipIf(Boolean(missing))("concorrência em PostgreSQL real", () => {
   const prisma = new PrismaClient({ datasourceUrl: url });
   let orgId = "";
   const eventIds: string[] = [];
