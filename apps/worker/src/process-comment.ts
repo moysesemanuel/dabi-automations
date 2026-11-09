@@ -159,6 +159,19 @@ export async function processCommentEvent(deps: Deps, raw: unknown) {
   return setEvent({ status: "PROCESSED", error: [dmNote, pubNote].filter(Boolean).join(" | ") || null });
 }
 
+/**
+ * Marca UNKNOWN uma reserva que já foi reivindicada (PENDING com attempts ≥ 1) SOMENTE se ela ainda estiver PENDING
+ * (compare-and-set). Duas situações levam a esta linha: o processo anterior caiu no meio do envio, OU outra execução está
+ * enviando AGORA. Um `update` incondicional aqui podia, com uma leitura antiga, sobrescrever um SENT que a outra execução
+ * acabara de gravar. Com o compare-and-set, quem chega depois nunca rebaixa um resultado já gravado; e se a outra execução
+ * ainda estiver em andamento, o resultado dela (SENT/FAILED/UNKNOWN) prevalece quando terminar.
+ * Devolve true se ESTA execução fez a transição.
+ */
+async function markInterrupted(prisma: any, model: "messageDelivery" | "publicReply", id: string, note: string): Promise<boolean> {
+  const r = await prisma[model].updateMany({ where: { id, status: "PENDING", attempts: { gte: 1 } }, data: { status: "UNKNOWN", error: note } });
+  return r.count === 1;
+}
+
 /** Resposta pública: POST /{comment-id}/replies. Claim atômico antes da chamada; sem retry após resultado ambíguo. */
 async function runPublicReply(ctx: Ctx): Promise<{ status: Status; error: string | null }> {
   const { deps, data, match } = ctx;
@@ -183,7 +196,11 @@ async function runPublicReply(ctx: Ctx): Promise<{ status: Status; error: string
     return { status, error };
   };
 
-  if (row.attempts > 0) return finish("UNKNOWN", "processo interrompido durante a publicação; resultado incerto");
+  if (row.attempts > 0) {
+    const note = "processo interrompido durante a publicação; resultado incerto";
+    if (await markInterrupted(prisma, "publicReply", row.id, note)) return { status: "UNKNOWN", error: note };
+    return { status: "UNKNOWN", error: "outra execução já resolveu a resposta pública" }; // sem escrever: não rebaixar o resultado dela
+  }
   const message = String(match.publicReplyMessage ?? "").trim();
   if (!message) return finish("FAILED", "mensagem pública ausente");
   const a = resolveAuth(ctx);
@@ -278,7 +295,11 @@ async function runDm(ctx: Ctx): Promise<DmResult> {
   if (account.credential?.status === "NEEDS_RECONNECT") return holdForReconnect();
 
   // PENDING com tentativa já registrada = processo caiu durante o envio: resultado ambíguo.
-  if (delivery.attempts > 0) return finish("UNKNOWN", "processo interrompido durante o envio; resultado incerto");
+  if (delivery.attempts > 0) {
+    const note = "processo interrompido durante o envio; resultado incerto";
+    if (await markInterrupted(prisma, "messageDelivery", delivery.id, note)) return { kind: "done", status: "UNKNOWN", error: note };
+    return stop(); // outra execução já resolveu a entrega: não sobrescrever o resultado dela
+  }
 
   const shapeError = validateReplyShape(match);
   if (shapeError) return finish("FAILED", `automação inválida: ${shapeError}`);

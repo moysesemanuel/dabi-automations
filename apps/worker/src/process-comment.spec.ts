@@ -8,6 +8,9 @@ const NOW = new Date("2026-11-07T12:00:00Z");
 const isoAgo = (ms: number) => new Date(NOW.getTime() - ms).toISOString().replace("Z", "+0000");
 const H = 3600_000;
 
+// O fake entende `attempts` como número (igualdade) ou { gte: n }, como o Prisma.
+const attemptsMatch = (actual: number, want: any) => want === undefined || (typeof want === "object" && want !== null ? (want.gte === undefined || actual >= want.gte) : actual === want);
+
 function setup(opts: { credStatus?: string; publicEnabled?: boolean; auto?: Record<string, unknown>; sendEnabled?: boolean; resumeEnabled?: boolean; cred?: boolean; expired?: boolean; status?: string; orgMismatch?: boolean; existingDelivery?: any } = {}) {
   const enc = encryptToken(TOKEN, KEY);
   const account = {
@@ -48,7 +51,7 @@ function setup(opts: { credStatus?: string; publicEnabled?: boolean; auto?: Reco
       },
       update: async ({ where, data }: any) => Object.assign(deliveries.find((d) => d.id === where.id)!, data),
       updateMany: async ({ where, data }: any) => {
-        const d = deliveries.find((x) => x.id === where.id && x.status === where.status && (where.attempts === undefined || x.attempts === where.attempts));
+        const d = deliveries.find((x) => x.id === where.id && x.status === where.status && attemptsMatch(x.attempts, where.attempts));
         if (d) Object.assign(d, data);
         return { count: d ? 1 : 0 };
       },
@@ -61,7 +64,7 @@ function setup(opts: { credStatus?: string; publicEnabled?: boolean; auto?: Reco
       findUnique: async ({ where }: any) => publicReplies.find((d) => d.commentId === where.commentId) ?? null,
       update: async ({ where, data }: any) => Object.assign(publicReplies.find((d) => d.id === where.id)!, data),
       updateMany: async ({ where, data }: any) => {
-        const d = publicReplies.find((x) => x.id === where.id && x.status === where.status && x.attempts === where.attempts);
+        const d = publicReplies.find((x) => x.id === where.id && x.status === where.status && attemptsMatch(x.attempts, where.attempts));
         if (d) Object.assign(d, data);
         return { count: d ? 1 : 0 };
       },
