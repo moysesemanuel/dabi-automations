@@ -4,7 +4,7 @@ import { PrismaService } from "../prisma/prisma.module";
 export type HistoryKind = "dm" | "public";
 export interface HistoryQuery { status?: string; automationId?: string; page?: number; pageSize?: number }
 
-const STATUSES = ["PENDING", "HELD", "SENT", "FAILED", "UNKNOWN"] as const;
+const STATUSES = ["PENDING", "HELD", "SENT", "FAILED", "UNKNOWN", "CANCELED"] as const;
 const MAX_PAGE_SIZE = 50;
 
 /** Só campos seguros para o navegador: nunca token, IV, tag nem ids de destinatário. */

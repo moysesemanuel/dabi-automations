@@ -6,6 +6,7 @@ const MAP: Record<DeliveryStatus, { label: string; cls: string; hint: string }> 
   UNKNOWN: { label: "Incerta", cls: "warn", hint: "Não sabemos se saiu. Confira no Instagram antes de qualquer ação." },
   HELD: { label: "Retida", cls: "warn", hint: "O envio está desligado: a mensagem foi guardada e não será enviada sem liberação da equipe técnica." },
   PENDING: { label: "Aguardando", cls: "", hint: "Ainda não foi enviada." },
+  CANCELED: { label: "Cancelada", cls: "", hint: "Decidimos não enviar. Isso não é uma confirmação da Meta; o motivo aparece no detalhe." },
 };
 
 export function StatusBadge({ status }: { status: DeliveryStatus }) {

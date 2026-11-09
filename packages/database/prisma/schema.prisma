@@ -73,12 +73,15 @@ enum EventStatus {
 // SENT    = Meta confirmou
 // FAILED  = Meta rejeitou de forma definitiva
 // UNKNOWN = timeout/erro ambíguo após chamar a Meta: NÃO reenviar às cegas
+// CANCELED = decisão operacional de não enviar. Só vale quando se SABE que a Meta não foi chamada
+//            (HELD, ou PENDING com attempts = 0). NÃO prova que a Meta não recebeu algo; nunca use para UNKNOWN.
 enum DeliveryStatus {
   PENDING
   HELD
   SENT
   FAILED
   UNKNOWN
+  CANCELED
 }
 
 model Organization {

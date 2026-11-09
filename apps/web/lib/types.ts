@@ -1,5 +1,5 @@
 export type Role = "OWNER" | "ADMIN" | "MEMBER";
-export type DeliveryStatus = "PENDING" | "HELD" | "SENT" | "FAILED" | "UNKNOWN";
+export type DeliveryStatus = "PENDING" | "HELD" | "SENT" | "FAILED" | "UNKNOWN" | "CANCELED";
 
 export interface Membership { role: Role; organization: { id: string; name: string } }
 export interface Profile { id: string; email: string; name: string | null }
