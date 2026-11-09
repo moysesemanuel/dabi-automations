@@ -331,12 +331,13 @@ export function deriveEventView(ev: { status: string; error?: string | null }, d
     const state: ViewState = r.kind;
     let detail: string = r.detail;
     if (r.kind === "needs_review") {
-      // "Nada foi enviado" SÓ com garantia: o registro de entrega é criado ANTES de qualquer chamada à Meta, então a ausência de
-      // MessageDelivery e de PublicReply para o comentário prova que o DaBiChat não chamou a Meta. `noDeliveryRecords` só deve ser
-      // true quando quem chama CONSULTOU as duas tabelas e não achou nada. Sem essa prova, a descrição é conservadora.
-      if (opts.noDeliveryRecords === true && !dm && !pub) detail += " Nenhuma entrega foi registrada para este comentário, então o DaBiChat não chamou a Meta: nada foi enviado por ele.";
+      // Sem frase absoluta. A ausência de MessageDelivery/PublicReply indica que o DaBiChat NÃO chamou a Meta para este comentário
+      // (o registro é criado antes de qualquer chamada; só o worker envia, e só por /messages e /replies: travado por testes), mas
+      // NÃO prova que nada saiu: não cobre mensagens enviadas por outros meios (respostas manuais, outras ferramentas) nem registros
+      // que tenham sido apagados (cascatas de exclusão, retenção). Por isso a descrição é sempre prudente.
+      if (opts.noDeliveryRecords === true && !dm && !pub) detail += " Não há registro de entrega do DaBiChat para este comentário: ele registra a entrega antes de qualquer chamada à Meta, então, em condições normais, não enviou nada. Isso não considera mensagens enviadas por outros meios nem registros apagados; confirme no Instagram antes de agir.";
       else if (dm || pub) detail += ` Já existe entrega registrada (${DELIVERY_VIEW[(dm ?? pub)!.status].headline.toLowerCase()}): confira o histórico antes de agir.`;
-      else detail += " Não foi possível garantir que nenhuma mensagem foi enviada: verifique o histórico e o Instagram antes de agir.";
+      else detail += " Não foi possível verificar se houve envio: confira o histórico e o Instagram antes de agir.";
     }
     return { state, severity: r.severity, headline: r.label, detail, reason };
   }

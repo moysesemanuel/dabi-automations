@@ -113,7 +113,7 @@ describe("DashboardService.attention (eventos que requerem análise)", () => {
     const [first] = (await setup().attention("A")).items;
     expect(first).toMatchObject({ state: "needs_review", severity: "attention", reason: "needs_review.payload_without_comment" });
     expect(first.headline).toMatch(/Requer análise/);
-    expect(first.detail).toMatch(/Não foi possível garantir/); // e2 não tem ID de comentário no payload: nunca afirma que nada foi enviado
+    expect(first.detail).toMatch(/Não foi possível verificar/); // e2 não tem ID de comentário no payload: nunca afirma que nada foi enviado
   });
 
   it("NÃO expõe texto do comentário, autor, payload nem IDs da Meta: só ID interno do evento", async () => {
@@ -144,9 +144,18 @@ describe("DashboardService.attention: 'nada foi enviado' só com garantia", () =
     const items = (await setup().attention("A")).items;
     const e1 = items.find((i) => i.id === "e1")!; // comentário c1 da org A: existe a entrega d1 (SENT) → conservador
     expect(e1.detail).toMatch(/Já existe entrega registrada/);
-    expect(e1.detail).not.toMatch(/nada foi enviado por ele/i);
+    expect(e1.detail).not.toMatch(/nada foi enviado/i);
     const e2 = items.find((i) => i.id === "e2")!; // sem ID de comentário no payload: não há como provar
-    expect(e2.detail).toMatch(/Não foi possível garantir/);
-    expect(e2.detail).not.toMatch(/nada foi enviado por ele/i);
+    expect(e2.detail).toMatch(/Não foi possível verificar/);
+    expect(e2.detail).not.toMatch(/nada foi enviado/i);
+  });
+});
+
+describe("DashboardService.attention: sem registro de entrega, redação prudente", () => {
+  it("comentário consultado SEM entrega registrada recebe a descrição prudente (nunca 'nada foi enviado')", async () => {
+    // e1 tem comentário c1 com entrega d1 na org A; para provar o caso 'sem registro', usa o evento da org B (e6) sem payload de comentário
+    // (sem como provar) e confirma que nenhum texto devolvido afirma ausência de envio.
+    const all = [...(await setup().attention("A")).items, ...(await setup().attention("B")).items];
+    for (const i of all) expect(i.detail).not.toMatch(/nada foi enviado|nenhuma mensagem foi enviada/i);
   });
 });

@@ -174,6 +174,28 @@ describe("classificador de erros da Meta nos pontos de uso do worker", () => {
   });
 });
 
+// Premissa da observabilidade: SEM registro de entrega persistido, NENHUMA chamada à Meta acontece.
+describe("o registro de entrega precede qualquer chamada à Meta", () => {
+  it("DM: se criar a reserva falha (banco indisponível), nenhuma chamada à Meta é feita e o erro sobe", async () => {
+    const t = setup(); t.route(isoAgo(H), ok);
+    (t.deps.prisma as any).messageDelivery.create = async () => { throw Object.assign(new Error("db fora"), { code: "P1001" }); };
+    await expect(processCommentEvent(t.deps, job())).rejects.toThrow();
+    expect(t.calls).toHaveLength(0); // nem a leitura da idade do comentário, nem /messages
+  });
+  it("resposta pública: se criar a reserva falha, nenhuma chamada /replies é feita", async () => {
+    const t = setup({ publicEnabled: true, auto: { dmEnabled: false, publicReplyEnabled: true, publicReplyMessage: "Oi" } }); t.route(isoAgo(H), ok);
+    (t.deps.prisma as any).publicReply.create = async () => { throw Object.assign(new Error("db fora"), { code: "P1001" }); };
+    await expect(processCommentEvent(t.deps, job())).rejects.toThrow();
+    expect(t.calls.filter((c) => c.url.includes("/replies"))).toHaveLength(0);
+  });
+  it("com envio desligado, o registro existe (HELD) e nenhuma chamada é feita", async () => {
+    const t = setup({ sendEnabled: false }); t.route(isoAgo(H), ok);
+    await processCommentEvent(t.deps, job());
+    expect(t.deliveries).toHaveLength(1);
+    expect(t.calls).toHaveLength(0);
+  });
+});
+
 // P1: o estado de envio NÃO é copiado para o evento; o estado exibido é DERIVADO das entregas.
 describe("evento sem notas derivadas do envio (P1)", () => {
   const view = (t: ReturnType<typeof setup>) => deriveEventView(t.events.ev1, t.deliveries[0], t.publicReplies[0]);
