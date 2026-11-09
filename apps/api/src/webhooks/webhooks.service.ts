@@ -1,4 +1,4 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable, Logger, Optional } from "@nestjs/common";
 import { Queue } from "bullmq";
 import { PrismaService } from "../prisma/prisma.module";
 import { QUEUES, COMMENT_JOB_FORMATS, type CommentEventJob, type CommentEventJobMinimal, type CommentJobFormat } from "@dabi/contracts";
@@ -29,7 +29,8 @@ export function resolveJobFormat(v: string | undefined): CommentJobFormat {
 @Injectable()
 export class WebhooksService {
   private readonly logger = new Logger(WebhooksService.name);
-  constructor(private prisma: PrismaService, private opts: { format?: CommentJobFormat; now?: () => Date } = {}) {}
+  // `opts` existe para os testes. @Optional(): o Nest não tem provedor para ele e injeta undefined (vale o padrão {}).
+  constructor(private prisma: PrismaService, @Optional() private opts: { format?: CommentJobFormat; now?: () => Date } = {}) {}
 
   private _queue?: Queue<CommentEventJob | CommentEventJobMinimal>;
   private get queue() {
