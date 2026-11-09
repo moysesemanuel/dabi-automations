@@ -1,4 +1,4 @@
-import { commentEventJobSchema, normalizeKeyword, validateReplyShape, DEFAULT_BUTTON_TITLE, type CommentEventJob } from "@dabi/contracts";
+import { commentEventJobSchema, normalizeKeyword, validateReplyShape, classifyMetaError, flagsCredentialForReconnect, DEFAULT_BUTTON_TITLE, type CommentEventJob } from "@dabi/contracts";
 import { decryptToken } from "@dabi/config";
 import { safeErrorText } from "./safe-error";
 
@@ -22,8 +22,13 @@ export const DISABLED_NOTE = "envio desabilitado (INSTAGRAM_SEND_ENABLED=false)"
 /** Códigos de limite de taxa da Meta (além do HTTP 429). Rejeição = não enviou; só registramos à parte. */
 const RATE_LIMIT_CODES = new Set([4, 17, 32, 613]);
 
-/** Erro 190 da Meta: token inválido/revogado/expirado. A requisição foi REJEITADA (nada foi enviado). */
-const isInvalidToken = (err: any) => Number(err?.code) === 190;
+/**
+ * Credencial inválida (pede reconexão), pelo classificador central: 190 com subcódigo 458/460/463/467 ou sem subcódigo.
+ * 190 com 459/464 (ação do usuário no Facebook) e a faixa 200–299 (permissão) NÃO derrubam a credencial. A requisição foi
+ * REJEITADA (nada foi enviado).
+ */
+const isInvalidToken = (err: any, http?: number, operation: "read" | "send" = "send") =>
+  flagsCredentialForReconnect(classifyMetaError({ http, code: err?.code, subcode: err?.error_subcode, operation }));
 export const RECONNECT_NOTE = "credencial inválida ou revogada: reconecte a conta no DaBiChat";
 
 /**
@@ -203,7 +208,7 @@ async function runPublicReply(ctx: Ctx): Promise<{ status: Status; error: string
     return finish("UNKNOWN", "Meta respondeu 2xx sem id da resposta");
   }
   if (res.status >= 500) return finish("UNKNOWN", `Meta respondeu HTTP ${res.status}; resultado incerto`, { http: res.status });
-  if (isInvalidToken(body?.error)) { await flagCredential(ctx); return finish("FAILED", RECONNECT_NOTE, { http: res.status, code: 190 }); }
+  if (isInvalidToken(body?.error, res.status)) { await flagCredential(ctx); return finish("FAILED", RECONNECT_NOTE, { http: res.status, code: 190 }); }
   const m = metaError(res, body?.error ?? {}, a.token);
   return finish("FAILED", m.error, m.response);
 }
@@ -288,7 +293,7 @@ async function runDm(ctx: Ctx): Promise<DmResult> {
     const res = await f(`${base}/${encodeURIComponent(data.commentId)}?fields=timestamp`, { headers: auth, signal: AbortSignal.timeout(10_000) });
     if (res.status >= 500 || res.status === 429) throw new TransientError(`consulta do comentário: HTTP ${res.status}`);
     const body: any = await res.json().catch(() => ({}));
-    if (!res.ok && isInvalidToken(body?.error)) { await flagCredential(ctx); return holdForReconnect(); }
+    if (!res.ok && isInvalidToken(body?.error, res.status, "read")) { await flagCredential(ctx); return holdForReconnect(); }
     if (!res.ok) return finish("FAILED", `não foi possível confirmar a idade do comentário (HTTP ${res.status}, código ${body?.error?.code ?? "?"})`);
     createdAt = parseMetaTime(body?.timestamp);
   } catch (e) {
@@ -324,8 +329,8 @@ async function runDm(ctx: Ctx): Promise<DmResult> {
     return finish("UNKNOWN", "Meta respondeu 2xx sem message_id");
   }
   if (res.status >= 500) return finish("UNKNOWN", `Meta respondeu HTTP ${res.status}; resultado incerto`, { http: res.status });
-  // Token inválido/revogado (190): a Meta recusou, nada foi enviado. Retém (HELD, attempts=0) e pede reconexão.
-  if (isInvalidToken(body?.error)) { await flagCredential(ctx); return holdForReconnect(); }
+  // Token inválido/revogado (classificador: INVALID_CREDENTIAL): a Meta recusou, nada foi enviado. Retém (HELD, attempts=0) e pede reconexão.
+  if (isInvalidToken(body?.error, res.status)) { await flagCredential(ctx); return holdForReconnect(); }
   // Limite de taxa: a Meta recusou, então nada foi enviado; continua FAILED (sem retry automático),
   // mas sinalizado à parte para análise/reconciliação manual.
   const m = metaError(res, body?.error ?? {}, token);

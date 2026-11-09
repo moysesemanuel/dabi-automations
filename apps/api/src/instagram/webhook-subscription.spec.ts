@@ -122,3 +122,38 @@ describe("subscribeAccountWebhook", () => {
     expect(s.accounts[0].webhookSubscribedAt).toEqual(when);
   });
 });
+
+describe("subscribeAccountWebhook: classificação do erro da Meta (regressão)", () => {
+  const body = (code: number, error_subcode?: number) => ({ error: { code, ...(error_subcode !== undefined ? { error_subcode } : {}), message: "erro de teste" } });
+
+  for (const sub of [undefined, 458, 460, 463, 467]) {
+    it(`190${sub ? "/" + sub : " sem subcódigo"}: marca a credencial para reconexão (igual a antes)`, async () => {
+      const s = setup({ res: { status: 400, body: body(190, sub) } });
+      const r = await run(s);
+      expect(r.status).toBe("FAILED");
+      expect(s.marks).toHaveLength(1);
+      expect(r.error).toMatch(/Reconecte/);
+    });
+  }
+
+  for (const sub of [459, 464]) {
+    it(`190/${sub} (ação do usuário no Facebook): NÃO marca a credencial; registra o erro com o código`, async () => {
+      const s = setup({ res: { status: 400, body: body(190, sub) } });
+      const r = await run(s);
+      expect(r.status).toBe("FAILED");
+      expect(s.marks).toHaveLength(0);
+      expect(r.error).toContain("código 190");
+    });
+  }
+
+  it("200 sem subcódigo e demais da faixa 200–299: NÃO marca a credencial e a mensagem é segura (sem token)", async () => {
+    for (const code of [200, 210, 299, 10]) {
+      const s = setup({ res: { status: 400, body: body(code) } });
+      const r = await run(s);
+      expect(r.status).toBe("FAILED");
+      expect(s.marks).toHaveLength(0);
+      expect(r.error).toContain(`código ${code}`);
+      expect(r.error).not.toContain(TOKEN);
+    }
+  });
+});

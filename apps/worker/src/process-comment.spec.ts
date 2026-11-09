@@ -90,6 +90,86 @@ const ok = () => new Response(JSON.stringify({ recipient_id: "r1", message_id: "
 
 const tokenError = () => new Response(JSON.stringify({ error: { code: 190, type: "OAuthException", message: "Error validating access token: session invalidated" } }), { status: 400 });
 
+const metaErr = (code: number, subcode?: number) => () => new Response(JSON.stringify({ error: { code, ...(subcode !== undefined ? { error_subcode: subcode } : {}), type: "OAuthException", message: "erro de teste" } }), { status: 400 });
+
+// Regressão do classificador central nos TRÊS pontos de uso do worker (envio da DM, leitura da idade do comentário, resposta pública).
+describe("classificador de erros da Meta nos pontos de uso do worker", () => {
+  const credencialInvalida: [string, number, number | undefined][] = [["190 sem subcódigo", 190, undefined], ["190/458", 190, 458], ["190/460", 190, 460], ["190/463", 190, 463], ["190/467", 190, 467]];
+  for (const [nome, code, sub] of credencialInvalida) {
+    it(`${nome} no envio da DM: igual a antes (HELD, attempts 0, credencial marcada)`, async () => {
+      const t = setup(); t.route(isoAgo(H), metaErr(code, sub));
+      await processCommentEvent(t.deps, job());
+      expect(t.deliveries[0]).toMatchObject({ status: "HELD", attempts: 0 });
+      expect((t.account.credential as any).status).toBe("NEEDS_RECONNECT");
+    });
+  }
+
+  for (const sub of [459, 464]) {
+    it(`190/${sub} (ação do usuário no Facebook): NÃO marca a credencial; a entrega falha com o motivo, sem retry`, async () => {
+      const t = setup(); t.route(isoAgo(H), metaErr(190, sub));
+      await processCommentEvent(t.deps, job());
+      expect((t.account.credential as any).status).toBe("ACTIVE");
+      expect(t.credUpdates).toHaveLength(0);
+      expect(t.deliveries[0].status).toBe("FAILED");
+      expect(t.deliveries[0].error).toContain(`190/${sub}`);
+      expect(t.calls.filter((c) => c.url.includes("/messages"))).toHaveLength(1); // uma só chamada: nada foi retentado
+    });
+  }
+
+  it("200 SEM subcódigo (caso da elaniacosta.cake): NÃO marca a credencial; entrega FAILED com o código no motivo", async () => {
+    const t = setup(); t.route(isoAgo(H), metaErr(200));
+    await processCommentEvent(t.deps, job());
+    expect((t.account.credential as any).status).toBe("ACTIVE");
+    expect(t.credUpdates).toHaveLength(0);
+    expect(t.deliveries[0].status).toBe("FAILED");
+    expect(t.deliveries[0].error).toMatch(/código 200/);
+  });
+
+  it("faixa 200–299 e código 10 (permissão): nunca derrubam a credencial", async () => {
+    for (const code of [200, 210, 299, 10]) {
+      const t = setup(); t.route(isoAgo(H), metaErr(code));
+      await processCommentEvent(t.deps, job());
+      expect((t.account.credential as any).status).toBe("ACTIVE");
+      expect(t.deliveries[0].status).toBe("FAILED");
+    }
+  });
+
+  it("leitura da idade do comentário com 190/463: retém e marca (igual a antes); com 190/459: não marca", async () => {
+    const a = setup(); a.deps.fetchImpl = (async (u: any) => { a.calls.push({ url: String(u) }); return metaErr(190, 463)(); }) as any;
+    await processCommentEvent(a.deps, job());
+    expect(a.deliveries[0]).toMatchObject({ status: "HELD", attempts: 0 });
+    expect((a.account.credential as any).status).toBe("NEEDS_RECONNECT");
+    expect(a.calls.some((c) => c.url.includes("/messages"))).toBe(false);
+
+    const b = setup(); b.deps.fetchImpl = (async (u: any) => { b.calls.push({ url: String(u) }); return metaErr(190, 459)(); }) as any;
+    await processCommentEvent(b.deps, job());
+    expect((b.account.credential as any).status).toBe("ACTIVE");
+    expect(b.calls.some((c) => c.url.includes("/messages"))).toBe(false); // sem confirmar a idade, nada é enviado
+    expect(b.deliveries[0].status).toBe("FAILED");
+  });
+
+  it("resposta pública: 190/463 marca a credencial (igual a antes); 200 e 190/459 não marcam", async () => {
+    const opts = { publicEnabled: true, auto: { dmEnabled: false, publicReplyEnabled: true, publicReplyMessage: "Oi" } };
+    const a = setup(opts); a.route(isoAgo(H), ok); a.routePub(metaErr(190, 463));
+    await processCommentEvent(a.deps, job());
+    expect(a.publicReplies[0].status).toBe("FAILED");
+    expect((a.account.credential as any).status).toBe("NEEDS_RECONNECT");
+    for (const [code, sub] of [[200, undefined], [190, 459]] as const) {
+      const b = setup(opts); b.route(isoAgo(H), ok); b.routePub(metaErr(code, sub));
+      await processCommentEvent(b.deps, job());
+      expect(b.publicReplies[0].status).toBe("FAILED");
+      expect((b.account.credential as any).status).toBe("ACTIVE");
+    }
+  });
+
+  it("erro 5xx no envio continua UNKNOWN e sem retry (resultado ambíguo; paridade com o comportamento anterior)", async () => {
+    const t = setup(); t.route(isoAgo(H), () => new Response("{}", { status: 502 }));
+    await processCommentEvent(t.deps, job());
+    expect(t.deliveries[0].status).toBe("UNKNOWN");
+    expect(t.calls.filter((c) => c.url.includes("/messages"))).toHaveLength(1);
+  });
+});
+
 describe("credencial inválida (erro 190)", () => {
   it("190 no envio: entrega fica HELD com attempts=0 (nada foi enviado), só a credencial desta conta é marcada", async () => {
     const t = setup(); t.route(isoAgo(H), tokenError);

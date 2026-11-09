@@ -1,7 +1,12 @@
+import { classifyMetaError, flagsCredentialForReconnect } from "@dabi/contracts";
 import { MetaApiError } from "./graph";
 
-/** Erro 190 da Meta = token inválido, revogado ou expirado. */
-export const isInvalidTokenError = (e: unknown) => e instanceof MetaApiError && e.meta?.code === 190;
+/**
+ * Credencial inválida segundo o classificador central: 190 com 458/460/463/467 ou sem subcódigo. NÃO inclui 190 com 459/464
+ * (a pessoa precisa agir no Facebook) nem a faixa 200–299 (permissão).
+ */
+export const isInvalidTokenError = (e: unknown) =>
+  e instanceof MetaApiError && flagsCredentialForReconnect(classifyMetaError({ http: e.meta?.http, code: e.meta?.code, subcode: e.meta?.subcode, operation: "read" }));
 
 /**
  * Marca SÓ esta credencial como "precisa reconectar". Quando se informa o token usado, a marcação só vale se
