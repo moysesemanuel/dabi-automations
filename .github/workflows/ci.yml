@@ -44,6 +44,17 @@ jobs:
       - run: pnpm --filter @dabi/database exec prisma migrate deploy
         env: { DATABASE_URL: "postgresql://dabi:dabi@localhost:5432/dabi_test" }
       - run: pnpm typecheck
+      # Sobe o contêiner de injeção do Nest com o AppModule real (sem abrir porta): pega erros de dependência que os
+      # testes unitários não pegam porque instanciam as classes à mão. Valores abaixo são fictícios, só para a inicialização.
+      - name: Boot check (a API inicia e resolve todas as dependências)
+        run: pnpm --filter @dabi/api boot-check
+        env:
+          DATABASE_URL: postgresql://dabi:dabi@localhost:5432/dabi_test
+          REDIS_URL: redis://localhost:6379
+          META_APP_SECRET: ci-fake-app-secret
+          META_WEBHOOK_VERIFY_TOKEN: ci-fake-verify-token
+          TOKEN_ENCRYPTION_KEY: AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=
+          JWT_SECRET: ci-fake-jwt-secret-with-32-chars!
       - run: pnpm test
       - run: pnpm --filter @dabi/web build
       - run: pnpm audit --prod --audit-level=high
