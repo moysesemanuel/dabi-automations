@@ -11,8 +11,9 @@ import { handleCommentJob } from "./job-handler";
 import type { Deps } from "./process-comment";
 import { PG_URL, REDIS_URL, REQUIRED, assertIsolatedRedis, missingInfra } from "./test-infra";
 
-// Opções de job iguais às que a API usa (apps/api/src/webhooks/webhooks.service.ts: JOB_OPTIONS).
-const JOB_OPTIONS = { attempts: 3, backoff: { type: "exponential" as const, delay: 2000 }, removeOnComplete: { age: 24 * 3600, count: 1000 }, removeOnFail: { age: 7 * 24 * 3600, count: 5000 } };
+// Opções de job iguais às da API por padrão (retenção DESABILITADA: nenhuma remoção por idade).
+const JOB_OPTIONS = { attempts: 3, backoff: { type: "exponential" as const, delay: 2000 } };
+import { workerQueueOptions } from "./queue-options";
 
 vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 const missing = missingInfra({ pg: true, redis: true });
@@ -413,6 +414,44 @@ describe.skipIf(Boolean(missing))("E2: jobs mínimos e idempotência (PostgreSQL
       // o conteúdo do job de ENTRADA (que foi quem montou o job inválido) está em `data`; o que o worker escreveu não repete o conteúdo
       expect(`${job.failedReason}${JSON.stringify(job.stacktrace)}${JSON.stringify(job.returnvalue)}`).not.toContain(SEGREDO);
       expect(meta.calls.messages).toBe(0);
+    });
+
+    /** Envelhece artificialmente um job concluído (2 anos) no Redis do teste, como se tivesse terminado há muito tempo. */
+    const ageJob = async (id: string, ms: number) => {
+      const finished = Date.now() - ms;
+      await redis.hset(`${PREFIX}:${QUEUE}:${id}`, "finishedOn", String(finished));
+      await redis.zadd(`${PREFIX}:${QUEUE}:completed`, String(finished), id);
+    };
+    const completedIds = async () => redis.zrange(`${PREFIX}:${QUEUE}:completed`, "0", "-1");
+    const runJobs = async (n: number, tag: string) => {
+      const ids: string[] = [];
+      for (let i = 0; i < n; i++) { const e = await mkEvent(`${run}-${tag}${i}`); await queue.add("comment", { eventId: e.id }, { jobId: `evt-${e.id}` }); ids.push(`evt-${e.id}`); }
+      await until(async () => (await Promise.all(ids.map(stateOf))).every((s) => s === "completed"));
+      return ids;
+    };
+    const { connection: _c, ...semRetencao } = workerQueueOptions({ REDIS_URL: REDIS_URL! }); // opções REAIS do worker com a configuração padrão
+
+    it("SEM habilitação explícita, jobs concluídos ANTIGOS não são removidos quando outros jobs terminam", async () => {
+      expect(semRetencao).toEqual({}); // o worker real, por padrão, não traz nenhuma regra de remoção
+      const meta = mkMeta(); startWorker(mkDeps(meta), semRetencao);
+      const [velho] = await runJobs(1, "antigo");
+      await ageJob(velho, 2 * 365 * 24 * 3600 * 1000); // concluído há 2 anos
+      const ids = await runJobs(4, "novos"); // vários outros jobs terminam depois
+      await sleep(500);
+      expect(await completedIds()).toEqual(expect.arrayContaining([velho, ...ids])); // o antigo continua no conjunto de concluídos
+      expect(await queue.getJob(velho)).toBeTruthy();
+      expect(Number(await redis.exists(`${PREFIX}:${QUEUE}:${velho}`))).toBe(1); // e o hash do job continua no Redis
+    });
+
+    it("controle positivo: com a retenção habilitada de forma EXPLÍCITA, o mesmo job antigo é removido quando outro termina", async () => {
+      const { connection: _x, ...comRetencao } = workerQueueOptions({ REDIS_URL: REDIS_URL!, JOB_RETENTION_ENABLED: "true", COMPLETED_JOB_MAX_AGE_SECONDS: 3600, FAILED_JOB_MAX_AGE_SECONDS: 3600 });
+      expect(comRetencao).toEqual({ removeOnComplete: { age: 3600 }, removeOnFail: { age: 3600 } });
+      const meta = mkMeta(); startWorker(mkDeps(meta), comRetencao);
+      const [velho] = await runJobs(1, "ctrl-antigo");
+      await ageJob(velho, 2 * 365 * 24 * 3600 * 1000);
+      await runJobs(3, "ctrl-novos");
+      await until(async () => (await queue.getJob(velho)) === undefined, 8000);
+      expect(await redis.exists(`${PREFIX}:${QUEUE}:${velho}`)).toBe(0);
     });
 
     it("retenção do BullMQ é PREGUIÇOSA: com age curto, o job antigo continua até OUTRO job terminar (documenta o comportamento real)", async () => {

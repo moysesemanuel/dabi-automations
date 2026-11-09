@@ -1,5 +1,9 @@
 import { z } from "zod";
+import { jobRetentionProblems } from "@dabi/contracts";
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
+
+/** Inteiro opcional vindo de texto: vazio/ausente = indefinido; outro valor é validado (a faixa é checada na habilitação). */
+const optInt = z.preprocess((v) => (v === undefined || v === "" ? undefined : v), z.coerce.number().int().optional());
 
 const schema = z.object({
   DATABASE_URL: z.string().min(1),
@@ -7,6 +11,11 @@ const schema = z.object({
   // Formato do job de comentário que a API enfileira. "legacy" (padrão) = comportamento anterior; "minimal" = só { eventId }.
   // Mudar para "minimal" exige autorização explícita e o worker novo já publicado.
   COMMENT_JOB_FORMAT: z.enum(["legacy", "minimal"]).default("legacy"),
+  // Retenção dos REGISTROS de job no Redis (BullMQ). DESABILITADA por padrão: sem JOB_RETENTION_ENABLED=true nenhum job é removido.
+  // Habilitada, exige os DOIS prazos (segundos, de 1 hora a 2 anos); não existe prazo padrão. A remoção por idade é preguiçosa.
+  JOB_RETENTION_ENABLED: z.enum(["true", "false"]).default("false"),
+  COMPLETED_JOB_MAX_AGE_SECONDS: optInt,
+  FAILED_JOB_MAX_AGE_SECONDS: optInt,
   META_APP_ID: z.string().default(""),
   META_APP_SECRET: z.string().min(1),
   META_WEBHOOK_VERIFY_TOKEN: z.string().min(8),
@@ -40,6 +49,12 @@ const schema = z.object({
   // Assinatura de webhooks por conta: vazio = desligado; "*" = qualquer conta; ou lista de IDs do Instagram separados por vírgula.
   INSTAGRAM_WEBHOOK_SUBSCRIBE_ACCOUNTS: z.string().default(""),
   ALLOW_REGISTRATION: z.enum(["true", "false"]).default("false"),
+}).superRefine((env, ctx) => {
+  // Retenção habilitada: prazos obrigatórios e válidos (mesma regra que API e worker aplicam em jobRetention).
+  if (env.JOB_RETENTION_ENABLED === "true") {
+    for (const m of jobRetentionProblems({ enabled: true, completedMaxAgeSeconds: env.COMPLETED_JOB_MAX_AGE_SECONDS, failedMaxAgeSeconds: env.FAILED_JOB_MAX_AGE_SECONDS }))
+      ctx.addIssue({ code: "custom", message: m, path: ["JOB_RETENTION_ENABLED"] });
+  }
 });
 export type Env = z.infer<typeof schema>;
 export const loadEnv = (source: NodeJS.ProcessEnv = process.env): Env => schema.parse(source);

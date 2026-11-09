@@ -348,3 +348,41 @@ export function deriveEventView(ev: { status: string; error?: string | null }, d
   }
   return { state: "received", severity: "info", headline: "Recebido", detail: "Aguardando processamento." };
 }
+
+// ───────────────────────── Retenção dos registros de job no BullMQ ─────────────────────────
+
+/** Limites aceitos para a idade de retenção, em segundos: de 1 hora a 2 anos. */
+export const JOB_RETENTION_MIN_AGE_SECONDS = 3_600;
+export const JOB_RETENTION_MAX_AGE_SECONDS = 63_072_000;
+
+export interface JobRetentionConfig {
+  /** Só `true` (booleano) liga a retenção. Ausente, falso ou qualquer outro valor: DESLIGADA. */
+  enabled?: boolean;
+  completedMaxAgeSeconds?: number;
+  failedMaxAgeSeconds?: number;
+}
+
+/** Problemas na configuração de retenção (lista vazia = válida). Só faz sentido quando `enabled === true`. */
+export function jobRetentionProblems(c: JobRetentionConfig): string[] {
+  const p: string[] = [];
+  const check = (name: string, v: unknown) => {
+    if (v === undefined || v === null) p.push(`${name} é obrigatória quando a retenção está habilitada (não existe prazo padrão)`);
+    else if (typeof v !== "number" || !Number.isInteger(v)) p.push(`${name} deve ser um número inteiro de segundos`);
+    else if (v < JOB_RETENTION_MIN_AGE_SECONDS || v > JOB_RETENTION_MAX_AGE_SECONDS) p.push(`${name} deve estar entre ${JOB_RETENTION_MIN_AGE_SECONDS} e ${JOB_RETENTION_MAX_AGE_SECONDS} segundos`);
+  };
+  check("COMPLETED_JOB_MAX_AGE_SECONDS", c.completedMaxAgeSeconds);
+  check("FAILED_JOB_MAX_AGE_SECONDS", c.failedMaxAgeSeconds);
+  return p;
+}
+
+/**
+ * Opções de retenção dos registros de job (BullMQ) para API e worker. DESABILITADA POR PADRÃO: sem habilitação explícita
+ * devolve `{}` (nenhum removeOnComplete/removeOnFail), e o BullMQ mantém os jobs. Não existe prazo padrão: habilitada sem os dois
+ * prazos, ou com prazo inválido, é ERRO. A remoção por idade do BullMQ é preguiçosa (ocorre quando outro job termina).
+ */
+export function jobRetention(c: JobRetentionConfig = {}): { removeOnComplete?: { age: number }; removeOnFail?: { age: number } } {
+  if (c.enabled !== true) return {};
+  const problems = jobRetentionProblems(c);
+  if (problems.length) throw new Error(`Retenção de jobs habilitada com configuração inválida: ${problems.join("; ")}`);
+  return { removeOnComplete: { age: c.completedMaxAgeSeconds! }, removeOnFail: { age: c.failedMaxAgeSeconds! } };
+}

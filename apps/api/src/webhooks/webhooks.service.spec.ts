@@ -108,11 +108,12 @@ describe("WebhooksService.ingest: formato do job (E2)", () => {
     expect(store["comment:c1"].igAccountId).toBe("ig1");
   });
 
-  it("jobs novos levam opções de retenção (24 h concluídos, 7 dias com falha)", async () => {
+  it("jobs novos NÃO levam regra de remoção por idade (retenção desabilitada por padrão)", async () => {
     const { svc, added } = setup();
     await svc.ingest(rico());
-    expect(added[0][2].removeOnComplete).toEqual({ age: 86400, count: 1000 });
-    expect(added[0][2].removeOnFail).toEqual({ age: 604800, count: 5000 });
+    expect(added[0][2]).toMatchObject({ attempts: 3, backoff: { type: "exponential", delay: 2000 } });
+    expect("removeOnComplete" in added[0][2]).toBe(false);
+    expect("removeOnFail" in added[0][2]).toBe(false);
   });
 
   it("valor inválido de COMMENT_JOB_FORMAT cai em legacy (nunca minimal por engano)", async () => {

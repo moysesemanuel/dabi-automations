@@ -1,7 +1,7 @@
 import { Injectable, Logger, Optional } from "@nestjs/common";
 import { Queue } from "bullmq";
 import { PrismaService } from "../prisma/prisma.module";
-import { QUEUES, COMMENT_JOB_FORMATS, type CommentEventJob, type CommentEventJobMinimal, type CommentJobFormat } from "@dabi/contracts";
+import { QUEUES, COMMENT_JOB_FORMATS, jobRetention, type CommentEventJob, type CommentEventJobMinimal, type CommentJobFormat } from "@dabi/contracts";
 import { loadEnv } from "@dabi/config";
 
 /** BullMQ não aceita ":" em jobId customizado; a chave do banco continua "comment:<id>". */
@@ -10,16 +10,19 @@ export const commentJobId = (commentId: string) => `comment-${commentId}`;
 export const eventJobId = (eventId: string) => `evt-${eventId}`;
 
 /**
- * Opções de todo job novo. `attempts`/`backoff` inalterados. A retenção dos registros vale só para jobs novos; a remoção
- * por `age` do BullMQ é preguiçosa, então o prazo real depende de o job não carregar dado pessoal (formato mínimo) e da
- * limpeza agendada da E3.
+ * Opções de todo job novo: `attempts`/`backoff` fixos e, SOMENTE se a retenção for habilitada de forma explícita
+ * (JOB_RETENTION_ENABLED=true com os dois prazos válidos), removeOnComplete/removeOnFail. Por padrão NENHUM job é removido por
+ * idade. Mesma função (`jobRetention`) e mesmas variáveis do worker. Configuração inválida é erro (a API não inicia).
  */
-export const JOB_OPTIONS = {
-  attempts: 3,
-  backoff: { type: "exponential" as const, delay: 2000 },
-  removeOnComplete: { age: 24 * 3600, count: 1000 },
-  removeOnFail: { age: 7 * 24 * 3600, count: 5000 },
-};
+export function buildJobOptions(env: Record<string, string | undefined>) {
+  const num = (v: string | undefined) => (v === undefined || v === "" ? undefined : Number(v));
+  return {
+    attempts: 3,
+    backoff: { type: "exponential" as const, delay: 2000 },
+    ...jobRetention({ enabled: env.JOB_RETENTION_ENABLED === "true", completedMaxAgeSeconds: num(env.COMPLETED_JOB_MAX_AGE_SECONDS), failedMaxAgeSeconds: num(env.FAILED_JOB_MAX_AGE_SECONDS) }),
+  };
+}
+export const JOB_OPTIONS = buildJobOptions(process.env);
 
 /** Valor inválido ou ausente → "legacy" (o comportamento anterior). Nunca "minimal" por engano. */
 export function resolveJobFormat(v: string | undefined): CommentJobFormat {

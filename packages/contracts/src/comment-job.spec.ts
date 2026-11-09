@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseCommentEventJob, commentEventJobMinimalSchema } from "./index";
+import { parseCommentEventJob, commentEventJobMinimalSchema, jobRetention } from "./index";
 
 const legacy = { eventId: "e1", igAccountId: "ig1", commentId: "c1", mediaId: "m1", text: "CAFÉ", fromId: "u1" };
 
@@ -38,5 +38,30 @@ describe("parseCommentEventJob", () => {
 
   it("o schema mínimo é estrito", () => {
     expect(commentEventJobMinimalSchema.safeParse({ eventId: "e", extra: 1 }).success).toBe(false);
+  });
+});
+
+describe("jobRetention: desabilitada por padrão", () => {
+  it("sem configuração, ou sem habilitação explícita, NÃO devolve nenhuma opção de remoção", () => {
+    expect(jobRetention()).toEqual({});
+    expect(jobRetention({})).toEqual({});
+    expect(jobRetention({ completedMaxAgeSeconds: 86_400, failedMaxAgeSeconds: 604_800 })).toEqual({}); // prazos sem habilitar: ignorados
+    for (const enabled of [false, undefined, "true" as any, 1 as any, "yes" as any, null as any]) expect(jobRetention({ enabled, completedMaxAgeSeconds: 86_400, failedMaxAgeSeconds: 604_800 })).toEqual({});
+  });
+  it("habilitada de forma explícita, usa EXATAMENTE os prazos informados (sem 'count', sem padrão)", () => {
+    expect(jobRetention({ enabled: true, completedMaxAgeSeconds: 86_400, failedMaxAgeSeconds: 604_800 })).toEqual({ removeOnComplete: { age: 86_400 }, removeOnFail: { age: 604_800 } });
+  });
+  it("habilitada SEM os dois prazos é erro: a ausência de configuração nunca cria um prazo", () => {
+    expect(() => jobRetention({ enabled: true })).toThrow(/obrigatória.*não existe prazo padrão/);
+    expect(() => jobRetention({ enabled: true, completedMaxAgeSeconds: 86_400 })).toThrow(/FAILED_JOB_MAX_AGE_SECONDS é obrigatória/);
+    expect(() => jobRetention({ enabled: true, failedMaxAgeSeconds: 86_400 })).toThrow(/COMPLETED_JOB_MAX_AGE_SECONDS é obrigatória/);
+  });
+  it("valida os valores: inteiros entre 1 hora e 2 anos", () => {
+    const base = { enabled: true as const, completedMaxAgeSeconds: 86_400, failedMaxAgeSeconds: 86_400 };
+    for (const bad of [0, -1, 59, 3_599, 63_072_001, 1.5, NaN, Infinity, "86400" as any]) {
+      expect(() => jobRetention({ ...base, completedMaxAgeSeconds: bad })).toThrow(/COMPLETED_JOB_MAX_AGE_SECONDS/);
+      expect(() => jobRetention({ ...base, failedMaxAgeSeconds: bad })).toThrow(/FAILED_JOB_MAX_AGE_SECONDS/);
+    }
+    expect(() => jobRetention({ ...base, completedMaxAgeSeconds: 3_600, failedMaxAgeSeconds: 63_072_000 })).not.toThrow();
   });
 });

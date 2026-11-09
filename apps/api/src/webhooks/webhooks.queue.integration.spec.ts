@@ -61,7 +61,10 @@ describe.skipIf(!REDIS_URL)("API → Redis real: o que o webhook enfileira", () 
     const ev = store["comment:c-min"];
     const job = (await queue.getJob(`evt-${ev.id}`))!;
     expect(job.data).toEqual({ eventId: ev.id });
-    expect(job.opts).toMatchObject({ attempts: 3, backoff: { type: "exponential", delay: 2000 }, removeOnComplete: { age: 86400, count: 1000 }, removeOnFail: { age: 604800, count: 5000 } });
+    expect(job.opts).toMatchObject({ attempts: 3, backoff: { type: "exponential", delay: 2000 } });
+    // retenção DESABILITADA por padrão: o job novo não leva nenhuma regra de remoção por idade
+    expect(job.opts.removeOnComplete ?? false).toBe(false);
+    expect(job.opts.removeOnFail ?? false).toBe(false);
     const r = await raw(`evt-${ev.id}`);
     for (const proibido of [SEGREDO, USER, "c-min", "m1", "ig1", "u1", "payload"]) expect(r).not.toContain(proibido);
   });
