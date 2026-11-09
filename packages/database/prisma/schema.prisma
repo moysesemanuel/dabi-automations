@@ -85,9 +85,14 @@ enum DeliveryStatus {
 }
 
 model Organization {
-  id        String   @id @default(cuid())
-  name      String
-  createdAt DateTime @default(now())
+  id                    String    @id @default(cuid())
+  name                  String
+  createdAt             DateTime  @default(now())
+  // Exclusão com carência (E4). Todos nulos = organização normal. Nenhum código os lê ainda.
+  deletionRequestedAt   DateTime?
+  deletionScheduledFor  DateTime?
+  deletionCanceledAt    DateTime?
+  deletionRequestedById String? // ID interno do usuário; sem FK de propósito (sobrevive à exclusão do usuário)
 
   memberships    Membership[]
   socialAccounts SocialAccount[]
@@ -164,6 +169,7 @@ model SocialAccount {
   username            String
   createdAt           DateTime            @default(now())
   // Assinatura de webhooks (POST /subscribed_apps). UNKNOWN = nunca registrada por este sistema.
+  disconnectedAt      DateTime? // desconexão (E4): credencial apagada, histórico mantido até a retenção. Nulo = conectada
   webhookStatus       WebhookSubscription @default(UNKNOWN)
   webhookSubscribedAt DateTime?
   webhookError        String? // mensagem segura (sem token)
@@ -184,6 +190,9 @@ model SocialCredential {
   encryptedToken  String // AES-256-GCM; chave fora do banco
   tokenIv         String
   tokenTag        String
+  // ID do usuário (de sistema) da Meta dono do token, lido por GET /debug_token. NÃO preenchido nas contas
+  // existentes até comprovar a correspondência com o user_id do callback de exclusão da Meta.
+  metaUserId      String?
   loginMode       LoginMode        @default(INSTAGRAM)
   scopes          String[]
   expiresAt       DateTime?
@@ -192,6 +201,8 @@ model SocialCredential {
   statusChangedAt DateTime?
   updatedAt       DateTime         @updatedAt
   socialAccount   SocialAccount    @relation(fields: [socialAccountId], references: [id], onDelete: Cascade)
+
+  @@index([metaUserId])
 }
 
 model Media {

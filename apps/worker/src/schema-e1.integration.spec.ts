@@ -28,6 +28,39 @@ describe.skipIf(!url)("E1: schema aditivo em PostgreSQL real", () => {
     await prisma.$disconnect();
   });
 
+  describe("campos de desconexão, exclusão pendente e metaUserId", () => {
+    it("organização e conta novas nascem sem nenhum marcador de exclusão ou desconexão", async () => {
+      const org = await prisma.organization.findUniqueOrThrow({ where: { id: orgId } });
+      expect(org.deletionRequestedAt).toBeNull();
+      expect(org.deletionScheduledFor).toBeNull();
+      expect(org.deletionCanceledAt).toBeNull();
+      expect(org.deletionRequestedById).toBeNull();
+      const acc = await prisma.socialAccount.findUniqueOrThrow({ where: { id: accountId } });
+      expect(acc.disconnectedAt).toBeNull();
+    });
+
+    it("credencial nasce com metaUserId nulo e o campo é opcional (credenciais existentes não são preenchidas)", async () => {
+      const c = await prisma.socialCredential.create({ data: { socialAccountId: accountId, encryptedToken: "x", tokenIv: "i", tokenTag: "t", scopes: [] } });
+      expect(c.metaUserId).toBeNull();
+      expect(c.status).toBe("ACTIVE");
+    });
+
+    it("aceita gravar os marcadores (sem que nada os leia ainda) e a busca por metaUserId usa o campo novo", async () => {
+      const when = new Date("2026-12-09T12:00:00Z");
+      await prisma.organization.update({ where: { id: orgId }, data: { deletionRequestedAt: new Date("2026-11-09T12:00:00Z"), deletionScheduledFor: when, deletionRequestedById: "u-interno" } });
+      const org = await prisma.organization.findUniqueOrThrow({ where: { id: orgId } });
+      expect(org.deletionScheduledFor?.toISOString()).toBe(when.toISOString());
+      await prisma.organization.update({ where: { id: orgId }, data: { deletionRequestedAt: null, deletionScheduledFor: null, deletionRequestedById: null } });
+
+      await prisma.socialAccount.update({ where: { id: accountId }, data: { disconnectedAt: when } });
+      await prisma.socialAccount.update({ where: { id: accountId }, data: { disconnectedAt: null } });
+
+      await prisma.socialCredential.update({ where: { socialAccountId: accountId }, data: { metaUserId: `${run}-meta` } });
+      const found = await prisma.socialCredential.findMany({ where: { metaUserId: `${run}-meta` } });
+      expect(found).toHaveLength(1);
+    });
+  });
+
   describe("estado CANCELED", () => {
     it("aceita CANCELED em MessageDelivery e PublicReply, sem mudar o padrão PENDING", async () => {
       const d = await prisma.messageDelivery.create({ data: { organizationId: orgId, automationId, commentId: `${run}-c1`, status: "CANCELED", error: "teste" } });
