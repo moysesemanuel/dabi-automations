@@ -39,15 +39,16 @@ describe.skipIf(Boolean(missing))("restauração de backup: reconciliação de t
     dir = mkdtempSync(join(tmpdir(), "ledger-")); ledgerPath = join(dir, "tombstones.jsonl");
   });
 
-  const mkUnit = async (cid: string, u: { event?: number; dm?: { status: string; secs: number }; pub?: { status: string; secs: number } }) => {
+  const mkUnit = async (cid: string, u: { event?: number; dm?: { status: string; secs: number; attempts?: number }; pub?: { status: string; secs: number } }) => {
     if (u.event) { await prisma.automationEvent.create({ data: { providerEventKey: `comment:${cid}`, status: "PROCESSED", igAccountId: "ig", payload: { field: "comments", value: { id: cid, text: "LINK", media: { id: "m" } } } } }); await prisma.$executeRaw`UPDATE "AutomationEvent" SET "receivedAt" = NOW() - make_interval(secs => ${D(u.event)}) WHERE "providerEventKey" = ${`comment:${cid}`}`; }
-    if (u.dm) { await prisma.messageDelivery.create({ data: { organizationId: orgId, automationId: autoId, commentId: cid, status: u.dm.status as any, attempts: 1 } }); await prisma.$executeRaw`UPDATE "MessageDelivery" SET "createdAt" = NOW() - make_interval(secs => ${u.dm.secs}), "updatedAt" = NOW() - make_interval(secs => ${u.dm.secs}) WHERE "commentId" = ${cid}`; }
+    if (u.dm) { await prisma.messageDelivery.create({ data: { organizationId: orgId, automationId: autoId, commentId: cid, status: u.dm.status as any, attempts: u.dm.status === "HELD" ? 0 : 1 } }); await prisma.$executeRaw`UPDATE "MessageDelivery" SET "createdAt" = NOW() - make_interval(secs => ${u.dm.secs}), "updatedAt" = NOW() - make_interval(secs => ${u.dm.secs}) WHERE "commentId" = ${cid}`; }
     if (u.pub) { await prisma.publicReply.create({ data: { organizationId: orgId, automationId: autoId, commentId: cid, status: u.pub.status as any, attempts: 1 } }); await prisma.$executeRaw`UPDATE "PublicReply" SET "createdAt" = NOW() - make_interval(secs => ${u.pub.secs}), "updatedAt" = NOW() - make_interval(secs => ${u.pub.secs}) WHERE "commentId" = ${cid}`; }
   };
   const dataset = async () => {
     await mkUnit("rest-a", { event: 40 });
     await mkUnit("rest-b", { event: 40, dm: { status: "SENT", secs: D(100) }, pub: { status: "UNKNOWN", secs: D(100) } });
     await mkUnit("rest-c", { dm: { status: "UNKNOWN", secs: D(100) } });
+    await mkUnit("rest-d", { dm: { status: "HELD", secs: D(35) } }); // HELD velha: a retenção a CANCELA (transição de estado)
   };
   const COMMENTS = ["rest-a", "rest-b", "rest-c"];
   /** "Backup": retrato das tabelas operacionais; "restauração": apaga tudo e reinsere o retrato (estado ANTERIOR às exclusões e aos tombstones). */
@@ -80,6 +81,8 @@ describe.skipIf(Boolean(missing))("restauração de backup: reconciliação de t
     expect(v.ok).toBe(false);
     expect(v.missingTombstones.sort()).toEqual(COMMENTS);
     expect(v.resurrected.length).toBeGreaterThan(0);
+    expect(v.unreappliedTransitions).toEqual(["rest-d"]); // a HELD cancelada voltou a HELD (processável)
+    expect((await prisma.messageDelivery.findUniqueOrThrow({ where: { commentId: "rest-d" } })).status).toBe("HELD");
   });
 
   it("o executor RECUSA executar enquanto o registro durável estiver à frente do banco (restauração não reconciliada)", async () => {
@@ -108,10 +111,12 @@ describe.skipIf(Boolean(missing))("restauração de backup: reconciliação de t
   it("reconciliação: tombstones recriados, registros ressuscitados reexcluídos, verificação OK e bloqueio liberado; depois, a reingestão é descartada", async () => {
     const { ledger } = await scenario();
     const out = await reconcileAndRelease(prisma, ledger);
-    expect(out.verify).toEqual({ ok: true, missingTombstones: [], resurrected: [] });
+    expect(out.verify).toEqual({ ok: true, missingTombstones: [], resurrected: [], unreappliedTransitions: [] });
     expect(out.released).toBe(true);
     expect(await isRestoreHoldOn(prisma)).toBe(false);
     expect(out.reconcile!.tombstonesRecreated).toBe(3);
+    expect(out.reconcile!.transitionsReapplied).toBe(1);
+    expect((await prisma.messageDelivery.findUniqueOrThrow({ where: { commentId: "rest-d" } })).status).toBe("CANCELED"); // não volta a ser processável
     expect(out.reconcile!.rowsReDeleted.deliveries).toBe(2); expect(out.reconcile!.rowsReDeleted.replies).toBe(1); expect(out.reconcile!.rowsReDeleted.events).toBe(2);
     for (const c of COMMENTS) expect(await prisma.idempotencyTombstone.findUnique({ where: { commentId: c } })).not.toBeNull();
     // reingestão depois da reconciliação: protegida
@@ -143,7 +148,8 @@ describe.skipIf(Boolean(missing))("restauração de backup: reconciliação de t
     const { ledger } = await scenario();
     const lines = readFileSync(ledgerPath, "utf8").split("\n").filter(Boolean);
     // 1) linha alterada
-    const adulterada = lines.map((l, i) => (i === 0 ? l.replace(/rest-a/, "rest-z") : l)).join("\n") + "\n";
+    const alvo = lines.findIndex((l) => l.includes("rest-a")); expect(alvo).toBeGreaterThanOrEqual(0);
+    const adulterada = lines.map((l, i) => (i === alvo ? l.replace(/rest-a/, "rest-z") : l)).join("\n") + "\n";
     writeFileSync(ledgerPath, adulterada);
     expect(() => ledger.read()).toThrow(/adulterado/);
     const out = await reconcileAndRelease(prisma, ledger);
@@ -195,10 +201,10 @@ describe.skipIf(Boolean(missing))("restauração de backup: reconciliação de t
   it("o registro durável contém só IDs de comentário, flags, TTL, data e ID da execução (sem texto, autor, token nem payload)", async () => {
     await scenario();
     const raw = readFileSync(ledgerPath, "utf8");
-    expect(raw).not.toMatch(/LINK|from|username|text|payload|token|EAA/i);
+    expect(raw).not.toMatch(/LINK|"from"|username|"text"|payload|token|EAA/i); // fromStatus/fromAttempts são estados de origem de transições, não dados de comentário
     const lines = new FileLedger(ledgerPath).read();
     expect(lines.length).toBeGreaterThan(0);
-    for (const l of lines) expect(Object.keys(l).sort()).toEqual(["at", "hash", "items", "phase", "prev", "runId", "seq", "ttlSeconds"]);
+    for (const l of lines) expect(Object.keys(l).filter((k) => k !== "transitions").sort()).toEqual(["at", "hash", "items", "phase", "prev", "runId", "seq", "ttlSeconds"]);
   });
 
   it("cada execução registra intenção ANTES e confirmação DEPOIS, em sequência estritamente crescente e com a cadeia íntegra", async () => {
@@ -206,7 +212,29 @@ describe.skipIf(Boolean(missing))("restauração de backup: reconciliação de t
     const lines = new FileLedger(ledgerPath).read();
     expect(lines.map((l) => l.phase)).toEqual(expect.arrayContaining(["intent", "done"]));
     lines.forEach((l, i) => expect(l.seq).toBe(i + 1));
-    const firstIntent = lines.findIndex((l) => l.phase === "intent"), firstDone = lines.findIndex((l) => l.phase === "done");
+    const firstIntent = lines.findIndex((l) => l.phase === "intent"), firstDone = lines.findIndex((l) => l.phase === "done" && l.items.length > 0); // as de transição não têm intenção
     expect(firstIntent).toBeLessThan(firstDone);
+  });
+
+  it("a restauração NÃO ressuscita uma HELD cancelada: a transição fica no registro durável e é reaplicada antes de liberar", async () => {
+    const { ledger } = await scenario();
+    const trans = ledger.read().flatMap((l) => l.transitions ?? []);
+    expect(trans).toEqual([{ commentId: "rest-d", target: "dm", to: "CANCELED", fromStatus: "HELD", fromAttempts: 0 }]);
+    const antes = await verifyReconciliation(prisma, ledger);
+    expect(antes.unreappliedTransitions).toEqual(["rest-d"]);
+    await reconcileAndRelease(prisma, ledger);
+    expect((await verifyReconciliation(prisma, ledger)).unreappliedTransitions).toEqual([]);
+  });
+
+  it("a expiração do tombstone reconciliado é a ORIGINAL (data absoluta), independente do relógio de quem reconcilia", async () => {
+    const { ledger } = await scenario();
+    const original = new Date(new Date(ledger.read().find((l) => l.phase === "done" && l.items.length)!.at).getTime() + 180 * 86400_000);
+    // reconcilia com um relógio muito deslocado: a data do tombstone não pode mudar
+    await reconcileFromLedger(prisma, ledger, new Date(Date.now() + 60 * 86400_000));
+    for (const c of COMMENTS) {
+      const t = (await prisma.idempotencyTombstone.findUniqueOrThrow({ where: { commentId: c } })).expiresAt;
+      expect(Math.abs(+t - +original)).toBeLessThan(5 * 60_000); // dentro de minutos do prazo original (as entradas diferem em ms/min entre lotes)
+    }
+    expect((await verifyReconciliation(prisma, ledger, new Date(Date.now() + 60 * 86400_000))).missingTombstones).toEqual([]);
   });
 });

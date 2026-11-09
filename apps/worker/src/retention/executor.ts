@@ -18,7 +18,8 @@ import type { RetentionPlan } from "./authorization";
 import type { DeliveryState } from "../delivery-expiry";
 
 export interface LedgerItem { commentId: string; event: boolean; records: boolean }
-export interface LedgerEntry { runId: string; items: LedgerItem[]; ttlSeconds: number }
+export interface LedgerTransition { commentId: string; target: "dm" | "pub"; to: "CANCELED" | "UNKNOWN"; fromStatus: string; fromAttempts: number }
+export interface LedgerEntry { runId: string; items: LedgerItem[]; ttlSeconds: number; transitions?: LedgerTransition[] }
 /** Registro durável e independente do banco operacional. `intent` ANTES da transação, `done` DEPOIS do commit. */
 export interface LedgerLike { intent(e: LedgerEntry): Promise<void>; done(e: LedgerEntry): Promise<void>; head?(): Promise<{ seq: number; hash: string } | null> }
 
@@ -184,7 +185,7 @@ export async function runRetention(deps: ExecDeps, plan: Extract<RetentionPlan, 
       }
       const tx = await prisma.$transaction(async (t: any) => {
         await assertLeaseInTx(t, lease!);
-        let rows = 0; const done: LedgerItem[] = []; const local = emptyCounts();
+        let rows = 0; const done: LedgerItem[] = []; const trans: LedgerTransition[] = []; const local = emptyCounts();
         for (const p of batch) {
           const fresh = await lockAndLoad(t, p.snap.commentId);
           if (fresh.busy) { local.skipped.busy++; continue; }
@@ -195,7 +196,7 @@ export async function runRetention(deps: ExecDeps, plan: Extract<RetentionPlan, 
             if (a.kind === "transition") {
               const model = a.target === "dm" ? "messageDelivery" : "publicReply"; const r = a.target === "dm" ? fresh.snap.dm! : fresh.snap.pub!;
               const upd = await t[model].updateMany({ where: { commentId: p.snap.commentId, status: r.status, attempts: r.attempts }, data: { status: a.to, error: a.to === "CANCELED" ? "retention.canceled" : "retention.unknown_after_stall" } });
-              if (upd.count === 1) { rows++; if (a.to === "CANCELED") local.rows.transitionsCanceled++; else local.rows.transitionsUnknown++; } else local.skipped.stale++;
+              if (upd.count === 1) { rows++; trans.push({ commentId: p.snap.commentId, target: a.target, to: a.to, fromStatus: r.status, fromAttempts: r.attempts }); if (a.to === "CANCELED") local.rows.transitionsCanceled++; else local.rows.transitionsUnknown++; } else local.skipped.stale++;
             } else if (a.kind === "close_review") {
               const upd = await t.automationEvent.updateMany({ where: { providerEventKey: `comment:${p.snap.commentId}`, status: "RECEIVED", error: { startsWith: "needs_review." } }, data: { status: "IGNORED", error: "dropped.review_expired" } });
               if (upd.count === 1) { rows++; local.rows.closedReview++; } else local.skipped.stale++;
@@ -205,11 +206,13 @@ export async function runRetention(deps: ExecDeps, plan: Extract<RetentionPlan, 
             }
           }
         }
-        return { rows, done, local };
+        return { rows, done, trans, local };
       }, { timeout: 30_000, maxWait: 5_000 });
       batches.push(tx.rows);
       for (const k of Object.keys(tx.local.rows) as (keyof RunCounts["rows"])[]) counts.rows[k] += tx.local.rows[k];
       counts.skipped.busy += tx.local.skipped.busy; counts.skipped.stale += tx.local.skipped.stale;
+      // Transições de estado também vão ao registro durável: uma restauração traz de volta o estado ANTERIOR (ex.: HELD que já foi cancelada).
+      if (!purge && deps.ledger && tx.trans.length) await deps.ledger.done({ runId: run.id, items: [], transitions: tx.trans, ttlSeconds: L.tombstoneTtlSeconds }).catch(() => { counts.skipped.ledgerBlocked += 0; });
       if (purge && deps.ledger && tx.done.length) await deps.ledger.done({ runId: run.id, items: tx.done, ttlSeconds: L.tombstoneTtlSeconds }).catch(() => { counts.skipped.ledgerBlocked += 0; });
       for (const p of batch) if (samples.length < 5) samples.push(...p.ids.slice(0, 1));
       return true;

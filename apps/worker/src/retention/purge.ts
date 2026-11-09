@@ -10,9 +10,11 @@ import { randomUUID } from "node:crypto";
 export interface PurgeParts { event?: boolean; records?: boolean } // records = MessageDelivery E PublicReply juntos (as duas modalidades)
 export interface PurgeResult { events: number; deliveries: number; replies: number }
 
-export async function purgeCommentUnit(tx: any, commentId: string, parts: PurgeParts, tombstoneTtlSeconds: number): Promise<PurgeResult> {
-  if (!parts.event && !parts.records) return { events: 0, deliveries: 0, replies: 0 };
-  await tx.$executeRaw`INSERT INTO "IdempotencyTombstone" ("id", "commentId", "createdAt", "expiresAt") VALUES (${randomUUID()}, ${commentId}, NOW(), NOW() + make_interval(secs => ${tombstoneTtlSeconds})) ON CONFLICT ("commentId") DO UPDATE SET "expiresAt" = GREATEST("IdempotencyTombstone"."expiresAt", EXCLUDED."expiresAt")`;
+/** `tombstoneTtl`: segundos a partir de AGORA (retenção) OU uma Date ABSOLUTA (reconciliação: preserva a expiração original, sem depender de relógio). */
+export async function purgeCommentUnit(tx: any, commentId: string, parts: PurgeParts, tombstoneTtl: number | Date): Promise<PurgeResult> {
+  if (!parts.event && !parts.records && !(tombstoneTtl instanceof Date)) return { events: 0, deliveries: 0, replies: 0 };
+  if (tombstoneTtl instanceof Date) await tx.$executeRaw`INSERT INTO "IdempotencyTombstone" ("id", "commentId", "createdAt", "expiresAt") VALUES (${randomUUID()}, ${commentId}, NOW(), ${tombstoneTtl}) ON CONFLICT ("commentId") DO UPDATE SET "expiresAt" = GREATEST("IdempotencyTombstone"."expiresAt", EXCLUDED."expiresAt")`;
+  else await tx.$executeRaw`INSERT INTO "IdempotencyTombstone" ("id", "commentId", "createdAt", "expiresAt") VALUES (${randomUUID()}, ${commentId}, NOW(), NOW() + make_interval(secs => ${tombstoneTtl})) ON CONFLICT ("commentId") DO UPDATE SET "expiresAt" = GREATEST("IdempotencyTombstone"."expiresAt", EXCLUDED."expiresAt")`;
   const out: PurgeResult = { events: 0, deliveries: 0, replies: 0 };
   if (parts.event) out.events = (await tx.automationEvent.deleteMany({ where: { providerEventKey: `comment:${commentId}` } })).count;
   if (parts.records) {
@@ -24,6 +26,6 @@ export async function purgeCommentUnit(tx: any, commentId: string, parts: PurgeP
 }
 
 /** Conveniência para testes e para o executor: roda a primitiva numa transação própria. */
-export function purgeCommentUnitTx(prisma: any, commentId: string, parts: PurgeParts, ttlSeconds: number) {
-  return prisma.$transaction((tx: any) => purgeCommentUnit(tx, commentId, parts, ttlSeconds));
+export function purgeCommentUnitTx(prisma: any, commentId: string, parts: PurgeParts, ttl: number | Date) {
+  return prisma.$transaction((tx: any) => purgeCommentUnit(tx, commentId, parts, ttl));
 }
