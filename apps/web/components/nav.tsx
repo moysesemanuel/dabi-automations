@@ -11,16 +11,17 @@ const icons: Record<string, string> = {
   users: "M16 11a3 3 0 1 0 0-6M3 20a6 6 0 0 1 12 0M17 14a5 5 0 0 1 4 5M9 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6z",
 };
 
-export function Nav({ orgId, canManageTeam }: { orgId: string; canManageTeam: boolean }) {
+/** Uso pessoal: Equipe/convites ficam fora do menu principal (a rota /equipe e os dados continuam existindo; `showTeam` religa o item). */
+export function Nav({ orgId, canManageTeam, showTeam = false }: { orgId: string; canManageTeam: boolean; showTeam?: boolean }) {
   const path = usePathname();
   const base = `/o/${orgId}`;
   const items = [
     { href: base, label: "Visão geral", icon: "home", exact: true },
-    { href: `${base}/contas`, label: "Contas", icon: "user" },
-    { href: `${base}/publicacoes`, label: "Publicações", icon: "image" },
     { href: `${base}/automacoes`, label: "Automações", icon: "bolt" },
+    { href: `${base}/publicacoes`, label: "Publicações", icon: "image" },
     { href: `${base}/historico`, label: "Histórico", icon: "list" },
-    ...(canManageTeam ? [{ href: `${base}/equipe`, label: "Equipe", icon: "users" }] : []),
+    { href: `${base}/contas`, label: "Contas", icon: "user" },
+    ...(showTeam && canManageTeam ? [{ href: `${base}/equipe`, label: "Equipe", icon: "users" }] : []),
   ];
   return (
     <nav className="nav" aria-label="Principal">

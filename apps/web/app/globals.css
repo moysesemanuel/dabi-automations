@@ -194,3 +194,6 @@ dialog::backdrop { background: rgb(8 10 16 / 55%); overflow: hidden; overscroll-
 .plain-list li { padding-block-start: .75rem; border-block-start: 1px solid var(--border, color-mix(in srgb, currentColor 15%, transparent)); }
 .plain-list li:first-child { border-block-start: 0; padding-block-start: 0; }
 .plain-list code { overflow-wrap: anywhere; }
+
+/* ---------- Estados vazios: ação clara ---------- */
+.empty .btn, .empty .action-link { margin-block-start: .75rem; display: inline-flex; }

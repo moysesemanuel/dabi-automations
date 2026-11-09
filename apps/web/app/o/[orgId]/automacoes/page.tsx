@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { apiGet } from "@/lib/api";
 import type { Account, Automation, MediaItem, Overview } from "@/lib/types";
 import { canWrite } from "@/lib/types";
@@ -39,7 +40,8 @@ export default async function AutomationsPage({ params, searchParams }: { params
       {automations.length === 0 ? (
         <div className="card empty">
           <h2>Nenhuma automação ainda</h2>
-          <p>{media.length === 0 ? "Primeiro traga as publicações em “Publicações”." : "Crie a primeira para responder automaticamente a um comentário."}</p>
+          <p>{accounts.length === 0 ? "Primeiro conecte uma conta do Instagram." : media.length === 0 ? "Primeiro sincronize as publicações." : "Crie a primeira para responder automaticamente a um comentário."}</p>
+          {accounts.length === 0 ? <Link className="action-link" href={`/o/${orgId}/contas`}>Ir para Contas</Link> : media.length === 0 ? <Link className="action-link" href={`/o/${orgId}/publicacoes`}>Ir para Publicações</Link> : null}
         </div>
       ) : (
         <div className="table-wrap" tabIndex={0} role="region" aria-labelledby="auto-caption">

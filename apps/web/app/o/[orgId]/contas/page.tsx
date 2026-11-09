@@ -53,7 +53,7 @@ export default async function AccountsPage({ params, searchParams }: { params: P
       {flash && <div className={`alert ${flash.cls}`} role="status">{flash.text}</div>}
 
       {accounts.length === 0 ? (
-        <div className="card empty"><h2>Nenhuma conta conectada</h2><p>{canWrite(role) ? "Use o botão acima para conectar a conta do Instagram da sua empresa." : "Peça a um administrador para conectar a conta do Instagram da sua empresa."}</p></div>
+        <div className="card empty"><h2>Nenhuma conta conectada</h2><p>{canWrite(role) ? "Use o botão acima para conectar sua conta do Instagram (precisa ser profissional: comercial ou criador)." : "Peça a um administrador para conectar sua conta do Instagram (precisa ser profissional: comercial ou criador)."}</p></div>
       ) : (
         <div className="table-wrap" tabIndex={0} role="region" aria-labelledby="accounts-caption">
           <table>

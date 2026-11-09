@@ -59,8 +59,8 @@ export default async function OverviewPage({ params }: { params: Promise<{ orgId
         <section className="card">
           <h2>Primeiros passos</h2>
           <ol className="steps">
-            <li>{o.accounts > 0 ? "✓ " : ""}Conecte uma conta do Instagram (feito pela equipe técnica; veja em <Link href={`${base}/contas`}>Contas</Link>).</li>
-            <li>{o.media > 0 ? "✓ " : ""}Traga as publicações em <Link href={`${base}/publicacoes`}>Publicações</Link>.</li>
+            <li>{o.accounts > 0 ? "✓ " : ""}Conecte uma conta do Instagram em <Link href={`${base}/contas`}>Contas</Link>.</li>
+            <li>{o.media > 0 ? "✓ " : ""}Sincronize as publicações em <Link href={`${base}/publicacoes`}>Publicações</Link>.</li>
             <li>{o.automations.active + o.automations.paused > 0 ? "✓ " : ""}Crie uma automação em <Link href={`${base}/automacoes`}>Automações</Link>.</li>
           </ol>
         </section>

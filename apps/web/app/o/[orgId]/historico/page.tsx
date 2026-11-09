@@ -71,7 +71,7 @@ export default async function HistoryPage({ params, searchParams }: { params: Pr
       </form>
 
       {h.items.length === 0 ? (
-        <div className="card empty"><h2>Nada por aqui ainda</h2><p>Quando alguém comentar a palavra-chave de uma automação ativa, o resultado aparece neste histórico.</p></div>
+        <div className="card empty"><h2>Nada por aqui ainda</h2><p>Quando alguém comentar a palavra-chave de uma automação ativa, o resultado aparece neste histórico. Ainda sem automações? <Link className="action-link" href={`/o/${orgId}/automacoes`}>Ver automações</Link></p></div>
       ) : (
         <div className="table-wrap" tabIndex={0} role="region" aria-labelledby="hist-caption">
           <table>

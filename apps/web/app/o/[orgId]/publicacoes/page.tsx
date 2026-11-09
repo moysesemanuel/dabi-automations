@@ -44,7 +44,7 @@ export default async function MediaPage({ params, searchParams }: { params: Prom
       )}
 
       {!account ? (
-        <div className="card empty"><h2>Conecte uma conta primeiro</h2><p>As publicações aparecem aqui depois que a conta do Instagram for conectada.</p></div>
+        <div className="card empty"><h2>Conecte uma conta primeiro</h2><p>As publicações aparecem aqui depois que a conta do Instagram for conectada.</p><Link className="action-link" href={`/o/${orgId}/contas`}>Ir para Contas</Link></div>
       ) : media.length === 0 ? (
         <div className="card empty"><h2>Nenhuma publicação ainda</h2><p>{writable ? "Use “Sincronizar publicações” para trazer as publicações de @" + account.username + "." : "Peça a um administrador para sincronizar as publicações."}</p></div>
       ) : (
