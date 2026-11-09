@@ -382,3 +382,45 @@ model DeletionRequest {
   @@index([status, requestedAt])
   @@index([organizationId])
 }
+
+enum RetentionMode {
+  DRY_RUN
+  EXECUTE
+}
+
+enum RetentionRunStatus {
+  RUNNING
+  COMPLETED
+  PARTIAL
+  FAILED
+  ABORTED
+}
+
+// Registro administrativo de cada execução da retenção. SEM dado pessoal: só modo, limites, contagens agregadas e IDs técnicos.
+// No dry-run este registro é o ÚNICO efeito gravado; nenhum dado operacional muda.
+model RetentionRun {
+  id         String             @id @default(cuid())
+  mode       RetentionMode
+  status     RetentionRunStatus @default(RUNNING)
+  startedAt  DateTime           @default(now())
+  finishedAt DateTime?
+  leaseEpoch Int? // epoch da trava com que a execução rodou (fencing)
+  limits     Json? // limites efetivos da execução
+  counts     Json? // contagens agregadas por categoria
+  error      String?
+
+  @@index([startedAt])
+  @@index([status, startedAt])
+}
+
+// Trava de execução ÚNICA da retenção (arrendamento com fencing). Linha singleton (id = "retention"). Quem adquire incrementa o
+// epoch; cada lote confere posse e validade DENTRO da própria transação (SELECT … FOR SHARE), então um worker lento ou "zumbi"
+// nunca altera dados depois que a trava expirou ou foi tomada.
+model RetentionLease {
+  id          String    @id
+  owner       String?
+  epoch       Int       @default(0)
+  leaseUntil  DateTime?
+  heartbeatAt DateTime?
+  updatedAt   DateTime  @updatedAt
+}
