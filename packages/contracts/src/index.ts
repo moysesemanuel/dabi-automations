@@ -182,3 +182,73 @@ export type CommentJobOutcome =
   | "dropped" // evento ausente, já tratado ou comentário já protegido por tombstone: nada enviado
   | "needs_review"; // inconsistência de associação: nada enviado, evento mantido para análise
 export interface CommentJobResult { outcome: CommentJobOutcome }
+
+// ───────────────────────── Classificação central de erros da Meta (E2) ─────────────────────────
+
+/**
+ * Classes de erro. Baseadas na tabela da página oficial "Handling Errors" da Graph API (lida em 09/11/2026) e, onde
+ * indicado, na paridade com o tratamento que o worker já tinha. Quando a documentação não permite concluir, a classe é
+ * OTHER (ambígua): o tratamento é conservador e NUNCA derruba a credencial nem autoriza reenvio.
+ */
+export type MetaErrorKind =
+  | "INVALID_CREDENTIAL" // token expirado/revogado/inválido: pede reconexão
+  | "USER_ACTION" // a pessoa precisa agir no Facebook (checkpoint/confirmação); NÃO é credencial inválida
+  | "PERMISSION" // permissão/função/capacidade ausente (faixa 200–299, 10, 492); a credencial NÃO é marcada
+  | "RATE_LIMIT" // limite de chamadas ou bloqueio temporário: a Meta recusou, nada foi enviado
+  | "TRANSIENT" // falha passageira de rede/servidor numa operação de LEITURA
+  | "UNKNOWN_OUTCOME" // rede/timeout/5xx numa operação de ENVIO: pode ter sido processada; nunca reenviar às cegas
+  | "OTHER"; // qualquer outra rejeição ou combinação não documentada
+
+export interface MetaErrorInput {
+  /** Status HTTP, se houve resposta. */
+  http?: number;
+  /** `error.code` da resposta da Meta. */
+  code?: number;
+  /** `error.error_subcode`. */
+  subcode?: number;
+  /** Sem resposta utilizável: rede, timeout, conexão interrompida. */
+  network?: boolean;
+  /** Leitura (padrão) ou envio. Em envio, uma falha ambígua é UNKNOWN_OUTCOME, não TRANSIENT. */
+  operation?: "read" | "send";
+}
+
+// 190: subcódigos que a documentação diz exigir nova autenticação/token.
+const REAUTH_190 = new Set([458, 460, 463, 467]);
+// 190: o usuário precisa resolver algo em facebook.com (checkpoint / conta não confirmada).
+const USER_ACTION_190 = new Set([459, 464]);
+// Limites: 4 e 17 (página oficial) + 32 e 613 (paridade com o worker, que já os tratava como limite). 368 = bloqueio temporário.
+const RATE_LIMIT_CODES_META = new Set([4, 17, 32, 613, 368]);
+
+/**
+ * Classifica uma resposta de erro da Meta SEM presumir. Pontos importantes:
+ * - código 200–299 e 10 são PERMISSÃO, não token inválido: não derrubam a credencial;
+ * - 190 sem subcódigo ou com subcódigo não listado: continua INVALID_CREDENTIAL (a doc o define como token expirado/inválido),
+ *   exceto 459/464 (USER_ACTION) e 492 (PERMISSION, função de Página);
+ * - 102: com subcódigo é ambíguo (a doc manda verificar o subcódigo) → OTHER; sem subcódigo → INVALID_CREDENTIAL;
+ * - sem resposta (rede) ou 5xx: leitura → TRANSIENT; envio → UNKNOWN_OUTCOME;
+ * - HTTP 429 é RATE_LIMIT.
+ */
+export function classifyMetaError(e: MetaErrorInput): MetaErrorKind {
+  const send = e.operation === "send";
+  const code = e.code === undefined || e.code === null ? undefined : Number(e.code);
+  const sub = e.subcode === undefined || e.subcode === null ? undefined : Number(e.subcode);
+  const ambiguous = () => (send ? "UNKNOWN_OUTCOME" : "TRANSIENT") as MetaErrorKind;
+
+  if (e.network) return ambiguous();
+  if (e.http === 429) return "RATE_LIMIT";
+  if (code === undefined) return e.http !== undefined && e.http >= 500 ? ambiguous() : "OTHER";
+
+  if (code === 190) {
+    if (sub !== undefined && USER_ACTION_190.has(sub)) return "USER_ACTION";
+    if (sub === 492) return "PERMISSION";
+    return "INVALID_CREDENTIAL"; // 458, 460, 463, 467, sem subcódigo e subcódigos não listados
+  }
+  if (code === 102) return sub === undefined ? "INVALID_CREDENTIAL" : "OTHER";
+  if ((code >= 200 && code <= 299) || code === 10) return "PERMISSION";
+  if (RATE_LIMIT_CODES_META.has(code)) return "RATE_LIMIT";
+  if (e.http !== undefined && e.http >= 500) return ambiguous();
+  return "OTHER";
+}
+
+/** Só INVALID_CREDENTIAL pede reconexão da credencial. Nenhuma outra classe a derruba. */
+export const flagsCredentialForReconnect = (k: MetaErrorKind) => k === "INVALID_CREDENTIAL";
