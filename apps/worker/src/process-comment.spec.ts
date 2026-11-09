@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { encryptToken } from "@dabi/config";
+import { deriveEventView } from "@dabi/contracts";
 import { processCommentEvent, resumePending, buildMessage, buildMessagePayload, type Deps } from "./process-comment";
 
 const KEY = Buffer.alloc(32, 7).toString("base64");
@@ -170,6 +171,65 @@ describe("classificador de erros da Meta nos pontos de uso do worker", () => {
     await processCommentEvent(t.deps, job());
     expect(t.deliveries[0].status).toBe("UNKNOWN");
     expect(t.calls.filter((c) => c.url.includes("/messages"))).toHaveLength(1);
+  });
+});
+
+// P1: o estado de envio NÃO é copiado para o evento; o estado exibido é DERIVADO das entregas.
+describe("evento sem notas derivadas do envio (P1)", () => {
+  const view = (t: ReturnType<typeof setup>) => deriveEventView(t.events.ev1, t.deliveries[0], t.publicReplies[0]);
+
+  it("envio desligado (HELD): evento RECEIVED sem nota; a visão derivada diz 'retida por segurança, nada enviado'", async () => {
+    const t = setup({ sendEnabled: false }); t.route(isoAgo(H), ok);
+    await processCommentEvent(t.deps, job());
+    expect(t.events.ev1.status).toBe("RECEIVED");
+    expect(t.events.ev1.error ?? null).toBeNull();
+    expect(view(t)).toMatchObject({ state: "held", severity: "attention" });
+    expect(view(t).detail).toMatch(/Nada foi enviado/);
+  });
+
+  it("credencial a reconectar (HELD): evento sem nota; visão 'retida'", async () => {
+    const t = setup({ credStatus: "NEEDS_RECONNECT" });
+    await processCommentEvent(t.deps, job());
+    expect(t.events.ev1.error ?? null).toBeNull();
+    expect(view(t).state).toBe("held");
+  });
+
+  it("DM enviada: PROCESSED sem nota; visão 'enviada'", async () => {
+    const t = setup(); t.route(isoAgo(H), ok);
+    await processCommentEvent(t.deps, job());
+    expect(t.events.ev1).toMatchObject({ status: "PROCESSED", error: null });
+    expect(view(t).state).toBe("sent");
+  });
+
+  it("DM rejeitada pela Meta (FAILED): PROCESSED sem nota; o motivo fica na entrega e a visão é 'falhou'", async () => {
+    const t = setup(); t.route(isoAgo(H), () => new Response(JSON.stringify({ error: { code: 100, error_subcode: 2018, message: "x" } }), { status: 400 }));
+    await processCommentEvent(t.deps, job());
+    expect(t.events.ev1).toMatchObject({ status: "PROCESSED", error: null });
+    expect(t.deliveries[0].error).toContain("100/2018");
+    expect(view(t).state).toBe("failed");
+  });
+
+  it("resultado incerto (UNKNOWN): PROCESSED sem nota e a visão NÃO diz 'não enviada'", async () => {
+    const t = setup(); t.route(isoAgo(H), () => new Response("{}", { status: 502 }));
+    await processCommentEvent(t.deps, job());
+    expect(t.events.ev1).toMatchObject({ status: "PROCESSED", error: null });
+    const v = view(t);
+    expect(v.state).toBe("unknown");
+    expect(`${v.headline} ${v.detail}`).not.toMatch(/não foi enviada|nada foi enviado/i);
+    expect(v.detail).toMatch(/pode ter sido enviada/i);
+  });
+
+  it("retomada desabilitada com entrega HELD preexistente: evento continua RECEIVED, sem nota", async () => {
+    const t = setup({ existingDelivery: { status: "HELD", attempts: 0 }, resumeEnabled: false });
+    await processCommentEvent(t.deps, job());
+    expect(t.events.ev1.error ?? null).toBeNull();
+    expect(view(t).state).toBe("held");
+  });
+
+  it("razões de NÍVEL DE EVENTO continuam gravadas e são reconhecidas (comentário da própria conta)", async () => {
+    const t = setup();
+    await processCommentEvent(t.deps, job({ fromId: "ig1" }));
+    expect(deriveEventView(t.events.ev1)).toMatchObject({ state: "ignored", reason: "ignored.own_comment" });
   });
 });
 
@@ -515,7 +575,7 @@ describe("resposta pública", () => {
     expect(t.deliveries[0].status).toBe("SENT");
     expect(replies(t)).toHaveLength(0);
     expect(t.publicReplies).toHaveLength(0);
-    expect(t.events.ev1.error).toContain("INSTAGRAM_PUBLIC_REPLY_ENABLED=false");
+    expect(t.events.ev1.error).toBeNull(); // o evento não carrega nota de envio; o estado vem das entregas
   });
 
   it("automação sem resposta pública: nada é publicado mesmo com a flag ligada", async () => {

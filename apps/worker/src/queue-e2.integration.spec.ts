@@ -360,7 +360,7 @@ describe.skipIf(Boolean(missing))("E2: jobs mínimos e idempotência (PostgreSQL
       expect(await deliveries(cid)).toHaveLength(0);
       const after = await prisma.automationEvent.findUniqueOrThrow({ where: { id: ev.id } });
       expect(after.status).toBe("RECEIVED");
-      expect(after.error).toMatch(/igAccountId ausente/);
+      expect(after.error).toBe("needs_review.ig_account_missing");
     });
 
     it("associação inconsistente (evento já ligado à conta/organização B, igAccountId da conta A): needs_review, nada enviado", async () => {

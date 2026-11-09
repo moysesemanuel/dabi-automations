@@ -127,6 +127,45 @@ describe.skipIf(Boolean(missing))("corridas entre execuções do mesmo comentár
     expect(e.error ?? "").not.toMatch(/UNKNOWN|interrompido/); // B também não deixou nota enganosa no evento
   });
 
+  // ───────────── P1: nota do evento x estado real da entrega ─────────────
+  /** Prisma em que a gravação FINAL do evento (status PROCESSED) só acontece quando a barreira abrir. */
+  const withHeldFinalEventWrite = (real: PrismaClient, barrier: Promise<void>) =>
+    new Proxy(real as any, {
+      get(t, m: string) {
+        const d = t[m];
+        if (m !== "automationEvent") return typeof d === "function" ? d.bind(t) : d;
+        return new Proxy(d, {
+          get(dd, op: string) {
+            const fn = dd[op];
+            if (op !== "update" || typeof fn !== "function") return typeof fn === "function" ? fn.bind(dd) : fn;
+            return async (args: any) => { if (args?.data?.status === "PROCESSED") await barrier; return fn.call(dd, args); };
+          },
+        });
+      },
+    }) as PrismaClient;
+
+  it("P1: A (em voo) termina SENT e B escreve o evento DEPOIS: a nota do evento não pode contradizer a entrega", async () => {
+    const meta = mkMeta();
+    const { cid, ev } = await mkEvent();
+    const A = handleCommentJob(mkDeps(meta.fetchImpl), { eventId: ev.id });
+    await meta.started.p; // A reivindicou e está dentro da chamada à Meta
+
+    const barrier = gate();
+    const B = handleCommentJob(mkDeps(meta.fetchImpl, withHeldFinalEventWrite(prisma, barrier.p)), { eventId: ev.id });
+    await sleep(200); // B marcou a entrega (compare-and-set) e está parada antes de gravar o evento
+
+    meta.hold.open(); await A; // A termina: entrega SENT e evento PROCESSED
+    barrier.open(); await B; // B grava o evento por último
+
+    const d = await prisma.messageDelivery.findUniqueOrThrow({ where: { commentId: cid } });
+    const e = await prisma.automationEvent.findUniqueOrThrow({ where: { id: ev.id } });
+    expect(d.status).toBe("SENT");
+    expect(e.status).toBe("PROCESSED");
+    // a entrega foi ENVIADA: nenhuma nota gravada no evento pode afirmar o contrário
+    expect(e.error ?? "").not.toMatch(/UNKNOWN|interrompido|incert|HELD|FAILED/i);
+    expect(meta.calls.messages).toBe(1);
+  });
+
   it("processo caiu de verdade (PENDING, attempts 1, ninguém em voo): continua UNKNOWN e sem chamada à Meta", async () => {
     const meta = mkMeta();
     const { cid, ev } = await mkEvent();

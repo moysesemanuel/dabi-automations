@@ -46,7 +46,7 @@ describe("handleCommentJob: formato mínimo", () => {
     expect(await handleCommentJob(f.deps, { eventId: "e1" }, run)).toEqual({ outcome: "needs_review" });
     expect(run).not.toHaveBeenCalled();
     expect(f.events.get("e1")!.status).toBe("RECEIVED");
-    expect(f.events.get("e1")!.error).toMatch(/igAccountId ausente/);
+    expect(f.events.get("e1")!.error).toBe("needs_review.ig_account_missing");
   });
 
   it("payload sem id do comentário → needs_review, nada enviado", async () => {
@@ -146,7 +146,8 @@ describe("handleCommentJob: resultado e erros sem dado pessoal", () => {
     await handleCommentJob(f.deps, { eventId: "e1" }, async () => ({ status: "PROCESSED" }));
     await handleCommentJob(f.deps, { eventId: "ausente" }, async () => ({}));
     const todos = f.logs.join("\n");
-    expect(todos).toMatch(/evento=e1 resultado=processed/);
+    expect(todos).toMatch(/job formato=minimo evento=e1 resultado=processed motivo=-/);
+    expect(todos).toMatch(/job formato=minimo evento=ausente resultado=dropped motivo=event_missing/);
     expect(todos).not.toMatch(new RegExp(`${SEGREDO}|${USER}|c1|m1|ig1`));
   });
 });

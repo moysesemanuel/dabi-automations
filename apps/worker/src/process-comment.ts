@@ -144,19 +144,15 @@ export async function processCommentEvent(deps: Deps, raw: unknown) {
   }
 
   // Resposta pública: independente da DM quando a DM está desabilitada; com DM habilitada, só após SENT.
-  let pubNote: string | null = null;
-  if (pubOn && (!dmOn || dm?.status === "SENT")) {
-    if (!env.publicReplyEnabled) {
-      pubNote = "resposta pública desabilitada (INSTAGRAM_PUBLIC_REPLY_ENABLED=false)";
-    } else if (account.credential?.status === "NEEDS_RECONNECT") {
-      pubNote = `resposta pública não enviada: ${RECONNECT_NOTE}`;
-    } else {
-      const pr = await runPublicReply(ctx);
-      if (pr.status !== "SENT") pubNote = `resposta pública ${pr.status}: ${pr.error}`;
-    }
+  // O resultado dela fica em PublicReply (a verdade); o evento NÃO recebe nota com o estado do envio.
+  if (pubOn && (!dmOn || dm?.status === "SENT") && env.publicReplyEnabled && account.credential?.status !== "NEEDS_RECONNECT") {
+    await runPublicReply(ctx);
   }
-  const dmNote = dm && dm.status !== "SENT" ? `entrega ${dm.status}: ${dm.error}` : null;
-  return setEvent({ status: "PROCESSED", error: [dmNote, pubNote].filter(Boolean).join(" | ") || null });
+  // PROCESSED = "o worker terminou de tratar". O estado de envio NÃO é copiado para `AutomationEvent.error`: copiar gerava
+  // divergência quando duas execuções disputavam o mesmo comentário (a entrega ficava SENT e a nota dizia UNKNOWN). O estado
+  // exibido é DERIVADO de MessageDelivery/PublicReply (deriveEventView, em @dabi/contracts). `error` fica só com razões de
+  // nível de evento (códigos), e aqui não há nenhuma: limpa qualquer nota anterior.
+  return setEvent({ status: "PROCESSED", error: null });
 }
 
 /**
@@ -261,7 +257,7 @@ async function runDm(ctx: Ctx): Promise<DmResult> {
     if (delivery.status === "HELD") {
       // Retida de propósito: só sai com envio E retomada habilitados. Reentrega de webhook não libera.
       if (!env.sendEnabled || !env.resumeEnabled) {
-        return stop(setEvent({ error: "entrega HELD: retomada desabilitada (INSTAGRAM_RESUME_PENDING_ENABLED=false)" }));
+        return stop(); // a entrega HELD já guarda o motivo; nada a copiar para o evento
       }
       // Liberação atômica HELD -> PENDING: só uma execução consegue.
       const rel = await prisma.messageDelivery.updateMany({ where: { id: delivery.id, status: "HELD" }, data: { status: "PENDING", error: null } });
@@ -284,13 +280,13 @@ async function runDm(ctx: Ctx): Promise<DmResult> {
   // Envio desligado: nenhuma chamada à Meta. A entrega fica HELD e o evento RECEIVED (retomável).
   if (!env.sendEnabled) {
     await prisma.messageDelivery.update({ where: { id: delivery.id }, data: { status: "HELD", error: DISABLED_NOTE } });
-    return stop(setEvent({ error: `entrega HELD: ${DISABLED_NOTE}` }));
+    return stop(); // o motivo (DISABLED_NOTE) está na entrega HELD; o evento continua RECEIVED, sem nota derivada
   }
 
   // Credencial já marcada para reconexão: não chama a Meta. Retém só as entregas desta conta.
   const holdForReconnect = async (): Promise<DmResult> => {
     await prisma.messageDelivery.update({ where: { id: delivery.id }, data: { status: "HELD", attempts: 0, error: RECONNECT_NOTE } });
-    return stop(setEvent({ error: `entrega HELD: ${RECONNECT_NOTE}` }));
+    return stop(); // o motivo (RECONNECT_NOTE) está na entrega HELD; o evento continua RECEIVED, sem nota derivada
   };
   if (account.credential?.status === "NEEDS_RECONNECT") return holdForReconnect();
 
