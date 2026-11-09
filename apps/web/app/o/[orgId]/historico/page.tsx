@@ -8,7 +8,7 @@ import { StatusBadge } from "@/components/status";
 export const metadata: Metadata = { title: "Histórico" };
 type SP = { tipo?: string; status?: string; automacao?: string; pagina?: string };
 
-const STATUS_OPTIONS = [["", "Todos"], ["SENT", "Enviadas"], ["FAILED", "Falhas"], ["UNKNOWN", "Incertas"], ["PENDING", "Aguardando"], ["HELD", "Retidas"], ["CANCELED", "Canceladas"]] as const;
+const STATUS_OPTIONS = [["", "Todos"], ["SENT", "Enviadas"], ["FAILED", "Falhas"], ["UNKNOWN", "Não confirmadas"], ["PENDING", "Aguardando"], ["HELD", "Retidas"], ["CANCELED", "Canceladas"]] as const;
 
 function detail(i: History["items"][number]) {
   const p = i.provider;
@@ -86,7 +86,7 @@ export default async function HistoryPage({ params, searchParams }: { params: Pr
                   <td data-label="Tentativas">{i.attempts}</td>
                   <td data-label="Detalhes">
                     {detail(i).length ? detail(i).map((b) => <div key={b} className="cell-sub">{b}</div>) : <span className="cell-sub">—</span>}
-                    {i.status === "UNKNOWN" && <div className="cell-sub"><strong>Confira no Instagram se saiu antes de qualquer ação.</strong></div>}
+                    {i.status === "UNKNOWN" && <div className="cell-sub"><strong>Resultado não confirmado: a mensagem pode ter sido enviada. Confira no Instagram antes de qualquer ação.</strong></div>}
                   </td>
                 </tr>
               ))}

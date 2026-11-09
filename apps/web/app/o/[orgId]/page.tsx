@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { apiGet } from "@/lib/api";
-import type { Overview } from "@/lib/types";
+import type { AttentionEvents, Overview } from "@/lib/types";
 import { SendingNotice } from "@/components/sending-notice";
 
 export const metadata: Metadata = { title: "Visão geral" };
@@ -10,6 +10,7 @@ export default async function OverviewPage({ params }: { params: Promise<{ orgId
   const { orgId } = await params;
   const o = await apiGet<Overview>(`/orgs/${orgId}/overview`);
   const base = `/o/${orgId}`;
+  const review = o.needsReview > 0 ? await apiGet<AttentionEvents>(`/orgs/${orgId}/events/attention?limit=10`) : null;
   const problems = o.directMessages.FAILED + o.directMessages.UNKNOWN + o.publicReplies.FAILED + o.publicReplies.UNKNOWN;
   const setupDone = o.accounts > 0 && o.media > 0 && o.automations.active + o.automations.paused > 0;
 
@@ -29,6 +30,21 @@ export default async function OverviewPage({ params }: { params: Promise<{ orgId
         <p className="alert warn" role="status">
           {problems} {problems === 1 ? "envio precisa" : "envios precisam"} de atenção. <Link className="action-link" href={`${base}/historico`}>Ver no histórico</Link>
         </p>
+      )}
+
+      {review && review.total > 0 && (
+        <section className="card" aria-labelledby="review-title">
+          <h2 id="review-title">Requer análise</h2>
+          <p className="muted">{review.total === 1 ? "1 comentário ficou parado" : `${review.total} comentários ficaram parados`} para investigação. <strong>Nada foi enviado</strong> para eles. Informe o código ao suporte.</p>
+          <ul className="plain-list">
+            {review.items.map((e) => (
+              <li key={e.id}>
+                <strong>{e.headline}</strong> <span className="muted">· {new Date(e.receivedAt).toLocaleString("pt-BR")}</span>
+                <div className="cell-sub">{e.detail} <code>{e.id}</code></div>
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
 
       <section className="stats" aria-label="Resumo">

@@ -11,7 +11,7 @@ export interface Account {
 }
 
 export interface Overview {
-  accounts: number; needsReconnect: number; media: number; automations: { active: number; paused: number };
+  accounts: number; needsReconnect: number; needsReview: number; media: number; automations: { active: number; paused: number };
   directMessages: Record<DeliveryStatus, number>; publicReplies: Record<DeliveryStatus, number>;
   sending: { directMessages: boolean; publicReplies: boolean };
 }
@@ -46,4 +46,10 @@ export interface ConnectionOnboarding {
   instagramInPortfolio: OnboardingAnswer | null;
   lastOutcome: string | null;
   helpEmail: string | null;
+}
+
+/** Eventos que requerem análise: só IDs internos e textos fixos do catálogo (nunca dados do comentário). */
+export interface AttentionEvents {
+  total: number;
+  items: { id: string; receivedAt: string; state: string; severity: "info" | "attention" | "error"; headline: string; detail: string; reason: string | null }[];
 }

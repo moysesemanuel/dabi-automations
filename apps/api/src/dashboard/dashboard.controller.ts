@@ -20,6 +20,10 @@ export class DashboardController {
     return { ...(await this.svc.overview(orgId)), sending: { directMessages: env.INSTAGRAM_SEND_ENABLED === "true", publicReplies: env.INSTAGRAM_PUBLIC_REPLY_ENABLED === "true" } };
   }
 
+  /** Eventos que requerem análise (needs_review): IDs internos e textos fixos, sem dados do comentário. */
+  @Get("events/attention")
+  attention(@Param("orgId") orgId: string, @Query("limit") limit?: string) { return this.svc.attention(orgId, num(limit)); }
+
   @Get("deliveries")
   deliveries(@Param("orgId") orgId: string, @Query("status") status?: string, @Query("automationId") automationId?: string, @Query("page") page?: string, @Query("pageSize") pageSize?: string) {
     return this.svc.history(orgId, "dm", { status, automationId, page: num(page), pageSize: num(pageSize) });

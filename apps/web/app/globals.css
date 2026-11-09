@@ -188,3 +188,9 @@ dialog::backdrop { background: rgb(8 10 16 / 55%); overflow: hidden; overscroll-
 .skip-link { position: absolute; inset-inline-start: .5rem; inset-block-start: -4rem; z-index: 10; padding: .6rem 1rem; border-radius: 9px; background: var(--accent); color: var(--accent-text); font-weight: 600; text-decoration: none; }
 .skip-link:focus { inset-block-start: .5rem; }
 .main:focus { outline: none; }
+
+/* Lista simples (ex.: eventos que requerem análise na Visão geral) */
+.plain-list { list-style: none; margin: .75rem 0 0; padding: 0; display: grid; gap: .75rem; }
+.plain-list li { padding-block-start: .75rem; border-block-start: 1px solid var(--border, color-mix(in srgb, currentColor 15%, transparent)); }
+.plain-list li:first-child { border-block-start: 0; padding-block-start: 0; }
+.plain-list code { overflow-wrap: anywhere; }

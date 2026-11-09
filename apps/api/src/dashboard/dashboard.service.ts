@@ -1,4 +1,5 @@
 import { Injectable } from "@nestjs/common";
+import { deriveEventView, eventReasonFromNote } from "@dabi/contracts";
 import { PrismaService } from "../prisma/prisma.module";
 
 export type HistoryKind = "dm" | "public";
@@ -42,7 +43,7 @@ export class DashboardService {
   /** Números da visão geral, sempre restritos à organização. */
   async overview(organizationId: string) {
     const where = { organizationId };
-    const [accounts, media, active, paused, dm, pub, needsReconnect] = await Promise.all([
+    const [accounts, media, active, paused, dm, pub, needsReconnect, needsReview] = await Promise.all([
       this.prisma.socialAccount.count({ where }),
       this.prisma.media.count({ where }),
       this.prisma.automation.count({ where: { ...where, status: "ACTIVE" } }),
@@ -50,10 +51,32 @@ export class DashboardService {
       this.prisma.messageDelivery.groupBy({ by: ["status"], where, _count: { _all: true } }),
       this.prisma.publicReply.groupBy({ by: ["status"], where, _count: { _all: true } }),
       this.prisma.socialCredential.count({ where: { status: "NEEDS_RECONNECT", socialAccount: { organizationId } } }),
+      this.prisma.automationEvent.count({ where: { ...where, status: "RECEIVED" as const, error: { startsWith: "needs_review." } } }),
     ]);
     const tally = (g: { status: string; _count: { _all: number } }[]) =>
       Object.fromEntries(STATUSES.map((s) => [s, g.find((x) => x.status === s)?._count._all ?? 0]));
-    return { accounts, needsReconnect, media, automations: { active, paused }, directMessages: tally(dm), publicReplies: tally(pub) };
+    return { accounts, needsReconnect, needsReview, media, automations: { active, paused }, directMessages: tally(dm), publicReplies: tally(pub) };
+  }
+
+  /**
+   * Eventos que REQUEREM ANÁLISE (`needs_review.*`): nada foi enviado e o evento ficou parado para investigação.
+   * Só eventos atribuíveis à organização aparecem aqui; os sem organização (ex.: conta não identificada) ficam só no log do worker.
+   * Devolve IDs internos e textos FIXOS do catálogo: nunca o texto do comentário, autor, tokens nem IDs da Meta.
+   */
+  async attention(organizationId: string, limit = 20) {
+    const take = Math.min(Math.max(Math.trunc(limit) || 20, 1), 50);
+    const where = { organizationId, status: "RECEIVED" as const, error: { startsWith: "needs_review." } };
+    const [total, rows] = await Promise.all([
+      this.prisma.automationEvent.count({ where }),
+      this.prisma.automationEvent.findMany({ where, orderBy: { receivedAt: "desc" }, take, select: { id: true, receivedAt: true, status: true, error: true } }),
+    ]);
+    return {
+      total,
+      items: rows.map((e: { id: string; receivedAt: Date; status: string; error: string | null }) => {
+        const v = deriveEventView(e);
+        return { id: e.id, receivedAt: e.receivedAt, state: v.state, severity: v.severity, headline: v.headline, detail: v.detail, reason: eventReasonFromNote(e.error) };
+      }),
+    };
   }
 
   /** Histórico paginado de DMs (kind=dm) ou respostas públicas (kind=public). */

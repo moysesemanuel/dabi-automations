@@ -26,6 +26,22 @@ function setup() {
     messageDelivery: model(deliveries), publicReply: model([]),
     socialAccount: { ...model(accounts), findMany: async ({ where }: any) => accounts.filter((r) => match(r, where)), count: async ({ where }: any) => accounts.filter((r) => match(r, where)).length },
     socialCredential: { count: async ({ where }: any) => accounts.filter((a) => a.credential && (a.credential as any).status === where.status && a.organizationId === where.socialAccount.organizationId).length },
+    // eventos: o fake aplica organizationId, status e error.startsWith de verdade
+    automationEvent: (() => {
+      const rows = [
+        { id: "e1", organizationId: "A", status: "RECEIVED", error: "needs_review.association_mismatch", receivedAt: new Date("2026-11-09T10:00:00Z"), payload: { value: { text: "SEGREDO-DO-COMENTARISTA", from: { username: "usuario_secreto" } } } },
+        { id: "e2", organizationId: "A", status: "RECEIVED", error: "needs_review.payload_without_comment", receivedAt: new Date("2026-11-09T11:00:00Z"), payload: {} },
+        { id: "e3", organizationId: "A", status: "RECEIVED", error: null, receivedAt: new Date("2026-11-09T12:00:00Z"), payload: {} },
+        { id: "e4", organizationId: "A", status: "PROCESSED", error: "needs_review.ig_account_missing", receivedAt: new Date("2026-11-09T13:00:00Z"), payload: {} },
+        { id: "e5", organizationId: "A", status: "IGNORED", error: "conta desconhecida", receivedAt: new Date("2026-11-09T14:00:00Z"), payload: {} },
+        { id: "e6", organizationId: "B", status: "RECEIVED", error: "needs_review.association_mismatch", receivedAt: new Date("2026-11-09T15:00:00Z"), payload: {} },
+      ];
+      const ok = (r: any, w: any) => r.organizationId === w.organizationId && r.status === w.status && typeof r.error === "string" && r.error.startsWith(w.error.startsWith);
+      return {
+        count: async ({ where }: any) => rows.filter((r) => ok(r, where)).length,
+        findMany: async ({ where, take }: any) => rows.filter((r) => ok(r, where)).sort((a, b) => +b.receivedAt - +a.receivedAt).slice(0, take).map(({ id, receivedAt, status, error }) => ({ id, receivedAt, status, error })),
+      };
+    })(),
     media: model([{ organizationId: "A", status: "x" }]), automation: model([{ organizationId: "A", status: "ACTIVE" }, { organizationId: "A", status: "PAUSED" }, { organizationId: "B", status: "ACTIVE" }]),
   };
   return new DashboardService(prisma);
@@ -81,5 +97,44 @@ describe("DashboardService", () => {
   it("visão geral conta por organização e por status", async () => {
     const o = await setup().overview("A");
     expect(o).toMatchObject({ accounts: 1, needsReconnect: 1, automations: { active: 1, paused: 1 }, directMessages: { SENT: 1, FAILED: 1, PENDING: 0, HELD: 0, UNKNOWN: 0, CANCELED: 0 } });
+  });
+});
+
+describe("DashboardService.attention (eventos que requerem análise)", () => {
+  it("só devolve eventos RECEIVED com razão needs_review.* DA ORGANIZAÇÃO: nada de outra organização, de eventos tratados ou sem razão", async () => {
+    const a = await setup().attention("A");
+    expect(a.total).toBe(2);
+    expect(a.items.map((i) => i.id)).toEqual(["e2", "e1"]); // mais recente primeiro
+    const b = await setup().attention("B");
+    expect(b.items.map((i) => i.id)).toEqual(["e6"]);
+  });
+
+  it("apresenta rótulo e detalhe FIXOS do catálogo, com severidade de atenção e a razão estável", async () => {
+    const [first] = (await setup().attention("A")).items;
+    expect(first).toMatchObject({ state: "needs_review", severity: "attention", reason: "needs_review.payload_without_comment" });
+    expect(first.headline).toMatch(/Requer análise/);
+    expect(first.detail).toMatch(/Nada foi enviado/);
+  });
+
+  it("NÃO expõe texto do comentário, autor, payload nem IDs da Meta: só ID interno do evento", async () => {
+    const r = await setup().attention("A");
+    const json = JSON.stringify(r);
+    expect(json).not.toMatch(/SEGREDO|usuario_secreto/); // dados do comentarista
+    expect(json).not.toContain('"payload"'); // a chave payload (o código de razão pode conter a palavra)
+    expect(json).not.toMatch(/"from"|"text"|providerEventKey/);
+    expect(Object.keys(r.items[0]).sort()).toEqual(["detail", "headline", "id", "reason", "receivedAt", "severity", "state"]);
+  });
+
+  it("limita o tamanho da página (1 a 50) e trata valores inválidos", async () => {
+    expect((await setup().attention("A", 1)).items).toHaveLength(1);
+    expect((await setup().attention("A", 1)).total).toBe(2); // total continua o real
+    expect((await setup().attention("A", 0)).items.length).toBeGreaterThan(0);
+    expect((await setup().attention("A", 9999)).items).toHaveLength(2);
+    expect((await setup().attention("A", NaN as any)).items).toHaveLength(2);
+  });
+
+  it("a visão geral traz a contagem de eventos que requerem análise, restrita à organização", async () => {
+    expect((await setup().overview("A")).needsReview).toBe(2);
+    expect((await setup().overview("B")).needsReview).toBe(1);
   });
 });
