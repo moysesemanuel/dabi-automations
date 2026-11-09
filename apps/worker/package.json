@@ -12,11 +12,11 @@
     "@dabi/config": "workspace:*",
     "@dabi/contracts": "workspace:*",
     "@dabi/database": "workspace:*",
-    "bullmq": "^6.7.1",
-    "ioredis": "^6.0.0"
+    "bullmq": "^6.7.1"
   },
   "devDependencies": {
     "@prisma/client": "^6.19.3",
+    "ioredis": "^6.0.0",
     "vitest": "^5.1.0"
   }
 }

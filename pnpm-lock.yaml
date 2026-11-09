@@ -53,9 +53,6 @@ importers:
       bullmq:
         specifier: ^6.7.1
         version: 6.7.1(ioredis@6.0.0)
-      ioredis:
-        specifier: ^6.0.0
-        version: 6.0.0
       reflect-metadata:
         specifier: ^0.2.2
         version: 0.2.2
@@ -75,6 +72,9 @@ importers:
       '@types/express':
         specifier: ^5.0.6
         version: 5.0.6
+      ioredis:
+        specifier: ^6.0.0
+        version: 6.0.0
 
   apps/web:
     dependencies:
@@ -115,13 +115,13 @@ importers:
       bullmq:
         specifier: ^6.7.1
         version: 6.7.1(ioredis@6.0.0)
-      ioredis:
-        specifier: ^6.0.0
-        version: 6.0.0
     devDependencies:
       '@prisma/client':
         specifier: ^6.19.3
         version: 6.19.3(prisma@6.19.3(typescript@7.0.2))(typescript@7.0.2)
+      ioredis:
+        specifier: ^6.0.0
+        version: 6.0.0
       vitest:
         specifier: ^5.1.0
         version: 5.1.0(@types/node@26.6.6)(vite@8.3.6(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15))
