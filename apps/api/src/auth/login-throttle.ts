@@ -1,7 +1,7 @@
 import { HttpException, HttpStatus, Injectable, Logger, ServiceUnavailableException } from "@nestjs/common";
-import { createHash } from "node:crypto";
 import { Redis } from "ioredis";
 import { loadEnv } from "@dabi/config";
+import { rateLimitDigest } from "../security/hmac";
 
 export interface CounterStore {
   /** Soma 1 ao contador (criando-o com validade na 1ª vez) e devolve o valor atual. */
@@ -82,9 +82,12 @@ export class LoginThrottle {
 
   private get failMode() { return this.mode ?? (process.env.LOGIN_THROTTLE_REDIS_DOWN === "closed" ? "closed" : "local"); }
 
+  /** Chaves sem e-mail nem IP em texto: HMAC-SHA256 com RATE_LIMIT_HMAC_KEY (nunca SHA-256 simples). */
   private keys(ip: string | undefined, email: string) {
-    const e = createHash("sha256").update(email.trim().toLowerCase()).digest("hex").slice(0, 32);
-    return { email: `rl:login:email:${e}`, ip: `rl:login:ip:${ip || "unknown"}` };
+    const warn = (m: string) => this.logger.warn(m);
+    const e = rateLimitDigest("email", email, process.env, warn);
+    const i = rateLimitDigest("ip", ip || "unknown", process.env, warn);
+    return { email: `rl:login:email:v1:${e}`, ip: `rl:login:ip:v1:${i}` };
   }
 
   private warnDown() {

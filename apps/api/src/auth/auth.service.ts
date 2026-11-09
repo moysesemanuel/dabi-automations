@@ -6,6 +6,7 @@ import type { LoginDto, RegisterDto } from "@dabi/contracts";
 import { PrismaService } from "../prisma/prisma.module";
 import { AuditService } from "../audit/audit.service";
 import { LoginThrottle } from "./login-throttle";
+import { auditEmailMetadata } from "../security/hmac";
 
 // hash real fictício: iguala o custo de bcrypt quando o e-mail não existe
 const DUMMY_HASH = bcrypt.hashSync("dummy-password-for-timing", 12);
@@ -36,7 +37,8 @@ export class AuthService {
     const ok = await bcrypt.compare(dto.password, user?.passwordHash ?? DUMMY_HASH);
     if (!user || !ok) {
       await this.throttle.recordFailure(ip, dto.email);
-      await this.audit.log({ action: "auth.login_failed", metadata: { email: dto.email } });
+      // Sem e-mail em texto: só um HMAC com chave própria (AUDIT_HMAC_KEY); sem a chave (desenvolvimento), nenhum identificador.
+      await this.audit.log({ action: "auth.login_failed", metadata: auditEmailMetadata(dto.email) });
       throw new UnauthorizedException("Credenciais inválidas");
     }
     await this.throttle.recordSuccess(ip, dto.email);

@@ -87,3 +87,41 @@ describe("LoginThrottle", () => {
     expect([...(store as MemoryStore).m.keys()].join(" ")).not.toContain("pessoa");
   });
 });
+
+describe("LoginThrottle: chaves no Redis sem dado pessoal", () => {
+  it("nenhuma chave contém o e-mail nem o IP em texto, e o formato é versionado", async () => {
+    const { t, store } = mk();
+    await t.recordFailure("203.0.113.77", "Pessoa.Secreta@exemplo.com");
+    const keys = [...(store as MemoryStore).m.keys()];
+    expect(keys).toHaveLength(2);
+    for (const k of keys) { expect(k).not.toMatch(/pessoa|secreta|exemplo|203\.0\.113/i); expect(k).toMatch(/^rl:login:(email|ip):v1:[0-9a-f]{32}$/); }
+  });
+
+  it("não usa SHA-256 simples do e-mail (a chave do e-mail não é reproduzível sem o segredo)", async () => {
+    const { createHash } = await import("node:crypto");
+    const { t, store } = mk();
+    await t.recordFailure("1.1.1.1", "a@x.com");
+    const simples = createHash("sha256").update("a@x.com").digest("hex").slice(0, 32);
+    expect([...(store as MemoryStore).m.keys()].join(" ")).not.toContain(simples);
+  });
+
+  it("com RATE_LIMIT_HMAC_KEY definida o limite continua valendo; e é o mesmo contador para o mesmo e-mail", async () => {
+    const antes = process.env.RATE_LIMIT_HMAC_KEY;
+    process.env.RATE_LIMIT_HMAC_KEY = "k".repeat(32);
+    try {
+      const { t } = mk();
+      for (let i = 0; i < MAX_FAILURES_PER_EMAIL; i++) await t.recordFailure(`7.7.7.${i}`, "a@x.com");
+      expect(await status(t.assertAllowed("8.8.8.8", " A@X.com "))).toBe(429);
+    } finally { if (antes === undefined) delete process.env.RATE_LIMIT_HMAC_KEY; else process.env.RATE_LIMIT_HMAC_KEY = antes; }
+  });
+
+  it("em produção sem RATE_LIMIT_HMAC_KEY o limitador NÃO é contornado: lança erro em vez de deixar passar", async () => {
+    const [nodeEnv, key] = [process.env.NODE_ENV, process.env.RATE_LIMIT_HMAC_KEY];
+    process.env.NODE_ENV = "production"; delete process.env.RATE_LIMIT_HMAC_KEY;
+    try {
+      const { t } = mk();
+      await expect(t.assertAllowed("1.1.1.1", "a@x.com")).rejects.toThrow(/RATE_LIMIT_HMAC_KEY/);
+      await expect(t.recordFailure("1.1.1.1", "a@x.com")).rejects.toThrow(/RATE_LIMIT_HMAC_KEY/);
+    } finally { if (nodeEnv === undefined) delete process.env.NODE_ENV; else process.env.NODE_ENV = nodeEnv; if (key !== undefined) process.env.RATE_LIMIT_HMAC_KEY = key; }
+  });
+});

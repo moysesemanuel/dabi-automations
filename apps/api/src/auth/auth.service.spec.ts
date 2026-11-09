@@ -49,3 +49,37 @@ describe("AuthService.login + limite de tentativas", () => {
     expect(audits.length).toBe(before); // nada foi auditado/processado: parou no limitador
   });
 });
+
+describe("AuthService.login: auditoria de login falho sem e-mail em texto", () => {
+  const falhas = async (email: string) => { const { svc, audits } = setup(); await svc.login({ email, password: "errada" }, "1.1.1.1").catch(() => {}); return audits.filter((a) => a.action === "auth.login_failed"); };
+  const restore = (k: string, v: string | undefined) => { if (v === undefined) delete process.env[k]; else process.env[k] = v; };
+
+  it("com AUDIT_HMAC_KEY: grava só emailHmac (v1:<hex>); o e-mail digitado nunca aparece, nem de usuário existente nem inexistente", async () => {
+    const antes = process.env.AUDIT_HMAC_KEY; process.env.AUDIT_HMAC_KEY = "h".repeat(32);
+    try {
+      for (const email of ["ok@x.com", "inexistente@x.com", "Pessoa.Secreta@Exemplo.com"]) {
+        const [a] = await falhas(email);
+        expect(Object.keys(a.metadata)).toEqual(["emailHmac"]);
+        expect(a.metadata.emailHmac).toMatch(/^v1:[0-9a-f]{64}$/);
+        expect(JSON.stringify(a).toLowerCase()).not.toMatch(/@|pessoa|secreta|exemplo|inexistente/);
+      }
+    } finally { restore("AUDIT_HMAC_KEY", antes); }
+  });
+
+  it("sem AUDIT_HMAC_KEY (desenvolvimento): NENHUM identificador derivado do e-mail", async () => {
+    const antes = process.env.AUDIT_HMAC_KEY; delete process.env.AUDIT_HMAC_KEY;
+    try {
+      const [a] = await falhas("ok@x.com");
+      expect(a.metadata).toEqual({});
+      expect(JSON.stringify(a)).not.toContain("ok@x.com");
+    } finally { restore("AUDIT_HMAC_KEY", antes); }
+  });
+
+  it("o mesmo e-mail gera o mesmo emailHmac (permite correlacionar abuso sem guardar o e-mail)", async () => {
+    const antes = process.env.AUDIT_HMAC_KEY; process.env.AUDIT_HMAC_KEY = "h".repeat(32);
+    try {
+      const [a] = await falhas("alvo@x.com"); const [b] = await falhas(" ALVO@x.com ");
+      expect(a.metadata.emailHmac).toBe(b.metadata.emailHmac);
+    } finally { restore("AUDIT_HMAC_KEY", antes); }
+  });
+});

@@ -16,6 +16,11 @@ const schema = z.object({
   // URL HTTPS de retorno do OAuth do Instagram. Vazio => WEB_URL + /instagram/callback.
   INSTAGRAM_OAUTH_REDIRECT_URI: z.string().default(""),
   TOKEN_ENCRYPTION_KEY: z.string().min(1),
+  // Chaves HMAC independentes (ver apps/api/src/security/hmac.ts). Opcionais fora de produção; a API exige as duas em
+  // produção e que sejam distintas entre si e de JWT_SECRET e TOKEN_ENCRYPTION_KEY.
+  AUDIT_HMAC_KEY: z.string().min(32).optional(),
+  RATE_LIMIT_HMAC_KEY: z.string().min(32).optional(),
+  NODE_ENV: z.string().optional(),
   JWT_SECRET: z.string().min(16),
   API_PORT: z.coerce.number().default(3001),
   // Se o Redis cair: "local" (contador em memória, padrão) ou "closed" (login responde 503).
