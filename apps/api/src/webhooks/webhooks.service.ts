@@ -82,7 +82,7 @@ export class WebhooksService {
         if (!ev) {
           // Comentário já tratado e apagado pela retenção: não recria o evento (nada é processado de novo).
           if (await this.tombstoned(String(commentId))) {
-            this.logger.log(`evento ignorado: comentário já tratado anteriormente (comment:${commentId}, tombstone)`);
+            this.logger.log(`evento ignorado motivo=dropped.tombstone comentario=${commentId} (sem evento: nenhum ID interno existe)`);
             continue;
           }
           const igAccountId = await this.connectedAccountId(String(entry.id));
@@ -101,7 +101,7 @@ export class WebhooksService {
         if (ev.status !== "RECEIVED") {
           // Descarte por deduplicação: visível no log (só id do comentário e estado; nunca texto, token ou dados pessoais).
           // O payload de exemplo do botão "Testar" da Meta usa sempre o mesmo id, então cai aqui.
-          this.logger.log(`evento duplicado ignorado por deduplicação (comment:${commentId}, estado atual=${ev.status})`);
+          this.logger.log(`evento duplicado ignorado por deduplicação (comment:${commentId}, estado atual=${ev.status}) evento=${ev.id}`);
           continue;
         }
 
@@ -114,7 +114,7 @@ export class WebhooksService {
           // Evento novo de conta não reconhecida (ou desconectada): nada a processar, sem job e sem dado na fila.
           if (created) {
             await this.prisma.automationEvent.update({ where: { id: ev.id }, data: { status: "IGNORED", error: "conta desconhecida" } });
-            this.logger.log(`evento ignorado: conta não reconhecida (comment:${commentId})`);
+            this.logger.log(`evento ignorado evento=${ev.id} motivo=ignored.account_unknown`);
             continue;
           }
           // Evento anterior à E2 reentregue: sem igAccountId gravado e SEM preenchimento por inferência → job legado.

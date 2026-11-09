@@ -85,3 +85,14 @@ describe("needs_review: 'nada foi enviado' só com garantia", () => {
     for (const r of Object.values(EVENT_REASONS)) expect(r.detail).not.toMatch(/nada foi enviado/i);
   });
 });
+
+describe("deriveEventView: IGNORED sem nota", () => {
+  it("é 'nenhuma automação correspondente', não 'recebido'", () => {
+    const v = deriveEventView({ status: "IGNORED", error: null });
+    expect(v).toMatchObject({ state: "ignored", reason: "ignored.no_automation" });
+  });
+  it("uma nota explícita continua prevalecendo; evento RECEIVED sem nota continua 'recebido'", () => {
+    expect(deriveEventView({ status: "IGNORED", error: "comentário da própria conta" }).reason).toBe("ignored.own_comment");
+    expect(deriveEventView({ status: "RECEIVED", error: null }).state).toBe("received");
+  });
+});

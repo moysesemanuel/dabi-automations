@@ -8,7 +8,8 @@
     "connect:instagram": "node --env-file=../../.env -r @swc/register src/cli/connect-instagram.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "boot-check": "node -r @swc/register src/boot-check.ts"
+    "boot-check": "node -r @swc/register src/boot-check.ts",
+    "ops:events": "node --env-file=../../.env -r @swc/register src/ops/events-report.cli.ts"
   },
   "devDependencies": {
     "@swc/core": "^1.16.22",

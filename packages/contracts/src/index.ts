@@ -324,7 +324,8 @@ const DELIVERY_VIEW: Record<DeliveryStatusValue, { state: ViewState; severity: E
  * Prioridade: razão de evento → DM → resposta pública → aguardando processamento.
  */
 export function deriveEventView(ev: { status: string; error?: string | null }, dm?: DeliveryLike | null, pub?: DeliveryLike | null, opts: { noDeliveryRecords?: boolean } = {}): EventView {
-  const reason = eventReasonFromNote(ev.error);
+  // IGNORED sem nota é o caso 'nenhuma automação casou' (o worker não grava texto para ele).
+  const reason = eventReasonFromNote(ev.error) ?? (ev.status === "IGNORED" ? "ignored.no_automation" : null);
   if (reason) {
     const r = EVENT_REASONS[reason];
     const state: ViewState = r.kind;

@@ -193,3 +193,26 @@ describe("WebhooksService.ingest: formato do job (E2)", () => {
     expect(logs.join("\n")).not.toMatch(new RegExp(`${SEGREDO}|usuario_secreto`));
   });
 });
+
+describe("WebhooksService.ingest: logs estruturados para operadores", () => {
+  const rich = (cid = "c1") => ({ object: "instagram", entry: [{ id: "ig1", changes: [{ field: "comments", value: { id: cid, text: "TEXTO-SECRETO", from: { id: "u1", username: "usuario_secreto" }, media: { id: "m1" } } }] }] });
+  const capture = (svc: any) => { const logs: string[] = []; svc.logger = { debug: (m: string) => logs.push(m), log: (m: string) => logs.push(m), warn: (m: string) => logs.push(m) }; return logs; };
+
+  it("conta não reconhecida (minimal): log com ID interno do evento e código do motivo, sem texto nem autor", async () => {
+    const { svc } = setup(undefined, { format: "minimal", accounts: {} }); const logs = capture(svc);
+    await svc.ingest(rich());
+    expect(logs.join("\n")).toMatch(/evento ignorado evento=ev1 motivo=ignored\.account_unknown/);
+    expect(logs.join("\n")).not.toMatch(/TEXTO-SECRETO|usuario_secreto/);
+  });
+  it("duplicado: log com o ID interno do evento", async () => {
+    const { svc } = setup({ id: "ev9", status: "IGNORED" }); const logs = capture(svc);
+    await svc.ingest(rich());
+    expect(logs.join("\n")).toMatch(/estado atual=IGNORED\) evento=ev9/);
+  });
+  it("tombstone: log com o código do motivo (não existe ID interno; só o ID do comentário)", async () => {
+    const { svc } = setup(undefined, { tombstones: [{ commentId: "c1", expiresAt: new Date("2027-01-01T00:00:00Z") }] }); const logs = capture(svc);
+    await svc.ingest(rich());
+    expect(logs.join("\n")).toMatch(/motivo=dropped\.tombstone comentario=c1/);
+    expect(logs.join("\n")).not.toMatch(/TEXTO-SECRETO|usuario_secreto/);
+  });
+});
