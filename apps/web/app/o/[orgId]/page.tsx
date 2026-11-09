@@ -35,7 +35,7 @@ export default async function OverviewPage({ params }: { params: Promise<{ orgId
       {review && review.total > 0 && (
         <section className="card" aria-labelledby="review-title">
           <h2 id="review-title">Requer análise</h2>
-          <p className="muted">{review.total === 1 ? "1 comentário ficou parado" : `${review.total} comentários ficaram parados`} para investigação. <strong>Nada foi enviado</strong> para eles. Informe o código ao suporte.</p>
+          <p className="muted">{review.total === 1 ? "1 comentário ficou parado" : `${review.total} comentários ficaram parados`} para investigação. Veja o detalhe de cada um e informe o código ao suporte.</p>
           <ul className="plain-list">
             {review.items.map((e) => (
               <li key={e.id}>

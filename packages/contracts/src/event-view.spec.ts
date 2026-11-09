@@ -58,3 +58,30 @@ describe("deriveEventView: o estado vem da entrega real, nunca da nota do evento
     for (const r of Object.values(EVENT_REASONS)) { expect(r.label.length).toBeGreaterThan(5); expect(`${r.label}${r.detail}`).not.toMatch(/\$\{|username|@/); }
   });
 });
+
+describe("needs_review: 'nada foi enviado' só com garantia", () => {
+  const ev = { status: "RECEIVED", error: "needs_review.association_mismatch" };
+  it("sem consulta às entregas: descrição conservadora, sem afirmar que nada foi enviado", () => {
+    const v = deriveEventView(ev);
+    expect(v.detail).toMatch(/Não foi possível garantir/);
+    expect(v.detail).not.toMatch(/nada foi enviado/i);
+  });
+  it("consultou e NÃO há entrega nem resposta pública: pode afirmar (o registro precede qualquer chamada à Meta)", () => {
+    const v = deriveEventView(ev, null, null, { noDeliveryRecords: true });
+    expect(v.detail).toMatch(/Nenhuma entrega foi registrada/);
+    expect(v.detail).toMatch(/nada foi enviado por ele/i);
+  });
+  it("há entrega registrada (mesmo HELD): descrição conservadora que manda conferir o histórico", () => {
+    for (const s of ["HELD", "SENT", "UNKNOWN", "PENDING"] as const) {
+      const v = deriveEventView(ev, { status: s }, null, { noDeliveryRecords: true });
+      expect(v.detail).toMatch(/Já existe entrega registrada/);
+      expect(v.detail).not.toMatch(/nada foi enviado por ele/i);
+    }
+  });
+  it("a garantia nunca vale se a flag não for exatamente true", () => {
+    for (const f of [undefined, false, 0 as any, "true" as any]) expect(deriveEventView(ev, null, null, { noDeliveryRecords: f }).detail).toMatch(/Não foi possível garantir/);
+  });
+  it("nenhuma razão do catálogo afirma 'nada foi enviado' por conta própria", () => {
+    for (const r of Object.values(EVENT_REASONS)) expect(r.detail).not.toMatch(/nada foi enviado/i);
+  });
+});

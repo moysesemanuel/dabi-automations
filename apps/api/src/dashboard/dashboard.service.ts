@@ -68,12 +68,27 @@ export class DashboardService {
     const where = { organizationId, status: "RECEIVED" as const, error: { startsWith: "needs_review." } };
     const [total, rows] = await Promise.all([
       this.prisma.automationEvent.count({ where }),
-      this.prisma.automationEvent.findMany({ where, orderBy: { receivedAt: "desc" }, take, select: { id: true, receivedAt: true, status: true, error: true } }),
+      // `payload` é lido SÓ para achar o ID do comentário e consultar as entregas; nunca é devolvido.
+      this.prisma.automationEvent.findMany({ where, orderBy: { receivedAt: "desc" }, take, select: { id: true, receivedAt: true, status: true, error: true, payload: true } }),
     ]);
+    const commentOf = (e: { payload: any }) => String(e.payload?.value?.comment_id ?? e.payload?.value?.id ?? "");
+    const commentIds = rows.map(commentOf).filter(Boolean);
+    // O registro de entrega é criado ANTES de qualquer chamada à Meta: sem MessageDelivery nem PublicReply para o comentário,
+    // há GARANTIA de que o DaBiChat não chamou a Meta. Só então o texto pode dizer que nada foi enviado.
+    const [dms, pubs] = commentIds.length
+      ? await Promise.all([
+          this.prisma.messageDelivery.findMany({ where: { organizationId, commentId: { in: commentIds } }, select: { commentId: true, status: true } }),
+          this.prisma.publicReply.findMany({ where: { organizationId, commentId: { in: commentIds } }, select: { commentId: true, status: true } }),
+        ])
+      : [[], []];
+    const dmBy = new Map<string, any>(dms.map((d: any) => [d.commentId, d])); const pubBy = new Map<string, any>(pubs.map((d: any) => [d.commentId, d]));
     return {
       total,
-      items: rows.map((e: { id: string; receivedAt: Date; status: string; error: string | null }) => {
-        const v = deriveEventView(e);
+      items: rows.map((e: { id: string; receivedAt: Date; status: string; error: string | null; payload: any }) => {
+        const cid = commentOf(e);
+        const dm = cid ? dmBy.get(cid) ?? null : null; const pub = cid ? pubBy.get(cid) ?? null : null;
+        // Sem ID de comentário identificável não há como provar a ausência de entrega: nunca afirma.
+        const v = deriveEventView(e, dm, pub, { noDeliveryRecords: Boolean(cid) && !dm && !pub });
         return { id: e.id, receivedAt: e.receivedAt, state: v.state, severity: v.severity, headline: v.headline, detail: v.detail, reason: eventReasonFromNote(e.error) };
       }),
     };

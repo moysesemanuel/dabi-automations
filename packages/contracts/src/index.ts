@@ -261,16 +261,16 @@ export const flagsCredentialForReconnect = (k: MetaErrorKind) => k === "INVALID_
  * leitura, de `MessageDelivery` e `PublicReply` (que são a verdade), por `deriveEventView`.
  */
 export const EVENT_REASONS = {
-  "needs_review.ig_account_missing": { kind: "needs_review", severity: "attention", label: "Requer análise: conta não identificada", detail: "O evento não trouxe uma conta do Instagram conectada. Nada foi enviado." },
-  "needs_review.association_mismatch": { kind: "needs_review", severity: "attention", label: "Requer análise: associação inconsistente", detail: "A conta ou a organização gravada no evento não bate com a conta encontrada. Nada foi enviado." },
-  "needs_review.payload_without_comment": { kind: "needs_review", severity: "attention", label: "Requer análise: comentário não identificado", detail: "O conteúdo recebido não permitiu identificar o comentário. Nada foi enviado." },
-  "dropped.tombstone": { kind: "dropped", severity: "info", label: "Descartado: comentário já tratado", detail: "Este comentário já tinha sido tratado e seus registros foram apagados. Nada foi enviado de novo." },
+  "needs_review.ig_account_missing": { kind: "needs_review", severity: "attention", label: "Requer análise: conta não identificada", detail: "O evento não trouxe uma conta do Instagram conectada. O processamento foi interrompido para análise." },
+  "needs_review.association_mismatch": { kind: "needs_review", severity: "attention", label: "Requer análise: associação inconsistente", detail: "A conta ou a organização gravada no evento não bate com a conta encontrada. O processamento foi interrompido para análise." },
+  "needs_review.payload_without_comment": { kind: "needs_review", severity: "attention", label: "Requer análise: comentário não identificado", detail: "O conteúdo recebido não permitiu identificar o comentário. O processamento foi interrompido para análise." },
+  "dropped.tombstone": { kind: "dropped", severity: "info", label: "Descartado: comentário já tratado", detail: "Este comentário já tinha sido tratado e seus registros foram apagados. O DaBiChat não o processou de novo." },
   "ignored.account_unknown": { kind: "ignored", severity: "info", label: "Ignorado: conta desconhecida", detail: "A conta do Instagram do evento não está conectada ao DaBiChat." },
   "ignored.own_comment": { kind: "ignored", severity: "info", label: "Ignorado: comentário da própria conta", detail: "Comentários da própria conta nunca recebem resposta automática." },
   "ignored.no_automation": { kind: "ignored", severity: "info", label: "Ignorado: nenhuma automação correspondente", detail: "Nenhuma automação ativa casou com a publicação e a palavra-chave." },
   "ignored.no_action_enabled": { kind: "ignored", severity: "info", label: "Ignorado: nenhuma ação habilitada", detail: "A automação não tem DM nem resposta pública habilitadas." },
-  "failed.org_mismatch": { kind: "failed", severity: "error", label: "Falhou: organização divergente", detail: "A organização da automação difere da conta. Nada foi enviado." },
-  "failed.delivery_foreign": { kind: "failed", severity: "error", label: "Falhou: entrega de outra automação", detail: "Já existia uma entrega deste comentário ligada a outra automação ou organização. Nada foi enviado." },
+  "failed.org_mismatch": { kind: "failed", severity: "error", label: "Falhou: organização divergente", detail: "A organização da automação difere da conta. O processamento foi interrompido." },
+  "failed.delivery_foreign": { kind: "failed", severity: "error", label: "Falhou: entrega de outra automação", detail: "Já existia uma entrega deste comentário ligada a outra automação ou organização. O processamento foi interrompido." },
 } as const;
 export type EventReasonCode = keyof typeof EVENT_REASONS;
 
@@ -323,12 +323,21 @@ const DELIVERY_VIEW: Record<DeliveryStatusValue, { state: ViewState; severity: E
  * gravadas no evento: só a razão de nível de evento (código), que é a única coisa que o evento sabe sozinho.
  * Prioridade: razão de evento → DM → resposta pública → aguardando processamento.
  */
-export function deriveEventView(ev: { status: string; error?: string | null }, dm?: DeliveryLike | null, pub?: DeliveryLike | null): EventView {
+export function deriveEventView(ev: { status: string; error?: string | null }, dm?: DeliveryLike | null, pub?: DeliveryLike | null, opts: { noDeliveryRecords?: boolean } = {}): EventView {
   const reason = eventReasonFromNote(ev.error);
   if (reason) {
     const r = EVENT_REASONS[reason];
     const state: ViewState = r.kind;
-    return { state, severity: r.severity, headline: r.label, detail: r.detail, reason };
+    let detail: string = r.detail;
+    if (r.kind === "needs_review") {
+      // "Nada foi enviado" SÓ com garantia: o registro de entrega é criado ANTES de qualquer chamada à Meta, então a ausência de
+      // MessageDelivery e de PublicReply para o comentário prova que o DaBiChat não chamou a Meta. `noDeliveryRecords` só deve ser
+      // true quando quem chama CONSULTOU as duas tabelas e não achou nada. Sem essa prova, a descrição é conservadora.
+      if (opts.noDeliveryRecords === true && !dm && !pub) detail += " Nenhuma entrega foi registrada para este comentário, então o DaBiChat não chamou a Meta: nada foi enviado por ele.";
+      else if (dm || pub) detail += ` Já existe entrega registrada (${DELIVERY_VIEW[(dm ?? pub)!.status].headline.toLowerCase()}): confira o histórico antes de agir.`;
+      else detail += " Não foi possível garantir que nenhuma mensagem foi enviada: verifique o histórico e o Instagram antes de agir.";
+    }
+    return { state, severity: r.severity, headline: r.label, detail, reason };
   }
   const main = dm ?? pub;
   if (main) {

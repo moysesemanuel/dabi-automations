@@ -23,13 +23,13 @@ function setup() {
     { id: "s2", organizationId: "B", username: "outra", providerAccountId: "ig2", createdAt: new Date(), credential: null, _count: { media: 0, automations: 0 } },
   ];
   const prisma: any = {
-    messageDelivery: model(deliveries), publicReply: model([]),
+    messageDelivery: { ...model(deliveries), findMany: async (args: any) => (args?.where?.commentId?.in ? deliveries.filter((d) => d.organizationId === args.where.organizationId && args.where.commentId.in.includes(d.commentId)).map(({ commentId, status }) => ({ commentId, status })) : model(deliveries).findMany(args)) }, publicReply: { ...model([]), findMany: async () => [] },
     socialAccount: { ...model(accounts), findMany: async ({ where }: any) => accounts.filter((r) => match(r, where)), count: async ({ where }: any) => accounts.filter((r) => match(r, where)).length },
     socialCredential: { count: async ({ where }: any) => accounts.filter((a) => a.credential && (a.credential as any).status === where.status && a.organizationId === where.socialAccount.organizationId).length },
     // eventos: o fake aplica organizationId, status e error.startsWith de verdade
     automationEvent: (() => {
       const rows = [
-        { id: "e1", organizationId: "A", status: "RECEIVED", error: "needs_review.association_mismatch", receivedAt: new Date("2026-11-09T10:00:00Z"), payload: { value: { text: "SEGREDO-DO-COMENTARISTA", from: { username: "usuario_secreto" } } } },
+        { id: "e1", organizationId: "A", status: "RECEIVED", error: "needs_review.association_mismatch", receivedAt: new Date("2026-11-09T10:00:00Z"), payload: { value: { id: "c1", text: "SEGREDO-DO-COMENTARISTA", from: { username: "usuario_secreto" } } } },
         { id: "e2", organizationId: "A", status: "RECEIVED", error: "needs_review.payload_without_comment", receivedAt: new Date("2026-11-09T11:00:00Z"), payload: {} },
         { id: "e3", organizationId: "A", status: "RECEIVED", error: null, receivedAt: new Date("2026-11-09T12:00:00Z"), payload: {} },
         { id: "e4", organizationId: "A", status: "PROCESSED", error: "needs_review.ig_account_missing", receivedAt: new Date("2026-11-09T13:00:00Z"), payload: {} },
@@ -39,7 +39,7 @@ function setup() {
       const ok = (r: any, w: any) => r.organizationId === w.organizationId && r.status === w.status && typeof r.error === "string" && r.error.startsWith(w.error.startsWith);
       return {
         count: async ({ where }: any) => rows.filter((r) => ok(r, where)).length,
-        findMany: async ({ where, take }: any) => rows.filter((r) => ok(r, where)).sort((a, b) => +b.receivedAt - +a.receivedAt).slice(0, take).map(({ id, receivedAt, status, error }) => ({ id, receivedAt, status, error })),
+        findMany: async ({ where, take }: any) => rows.filter((r) => ok(r, where)).sort((a, b) => +b.receivedAt - +a.receivedAt).slice(0, take).map(({ id, receivedAt, status, error, payload }) => ({ id, receivedAt, status, error, payload })),
       };
     })(),
     media: model([{ organizationId: "A", status: "x" }]), automation: model([{ organizationId: "A", status: "ACTIVE" }, { organizationId: "A", status: "PAUSED" }, { organizationId: "B", status: "ACTIVE" }]),
@@ -113,7 +113,7 @@ describe("DashboardService.attention (eventos que requerem análise)", () => {
     const [first] = (await setup().attention("A")).items;
     expect(first).toMatchObject({ state: "needs_review", severity: "attention", reason: "needs_review.payload_without_comment" });
     expect(first.headline).toMatch(/Requer análise/);
-    expect(first.detail).toMatch(/Nada foi enviado/);
+    expect(first.detail).toMatch(/Não foi possível garantir/); // e2 não tem ID de comentário no payload: nunca afirma que nada foi enviado
   });
 
   it("NÃO expõe texto do comentário, autor, payload nem IDs da Meta: só ID interno do evento", async () => {
@@ -136,5 +136,17 @@ describe("DashboardService.attention (eventos que requerem análise)", () => {
   it("a visão geral traz a contagem de eventos que requerem análise, restrita à organização", async () => {
     expect((await setup().overview("A")).needsReview).toBe(2);
     expect((await setup().overview("B")).needsReview).toBe(1);
+  });
+});
+
+describe("DashboardService.attention: 'nada foi enviado' só com garantia", () => {
+  it("comentário SEM entrega registrada (e2→ sem id) e com id sem entrega: afirma só quando consultou e não achou", async () => {
+    const items = (await setup().attention("A")).items;
+    const e1 = items.find((i) => i.id === "e1")!; // comentário c1 da org A: existe a entrega d1 (SENT) → conservador
+    expect(e1.detail).toMatch(/Já existe entrega registrada/);
+    expect(e1.detail).not.toMatch(/nada foi enviado por ele/i);
+    const e2 = items.find((i) => i.id === "e2")!; // sem ID de comentário no payload: não há como provar
+    expect(e2.detail).toMatch(/Não foi possível garantir/);
+    expect(e2.detail).not.toMatch(/nada foi enviado por ele/i);
   });
 });
