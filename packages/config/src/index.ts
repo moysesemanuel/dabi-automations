@@ -4,6 +4,9 @@ import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 const schema = z.object({
   DATABASE_URL: z.string().min(1),
   REDIS_URL: z.string().min(1),
+  // Formato do job de comentário que a API enfileira. "legacy" (padrão) = comportamento anterior; "minimal" = só { eventId }.
+  // Mudar para "minimal" exige autorização explícita e o worker novo já publicado.
+  COMMENT_JOB_FORMAT: z.enum(["legacy", "minimal"]).default("legacy"),
   META_APP_ID: z.string().default(""),
   META_APP_SECRET: z.string().min(1),
   META_WEBHOOK_VERIFY_TOKEN: z.string().min(8),
