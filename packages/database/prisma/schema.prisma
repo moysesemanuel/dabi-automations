@@ -257,6 +257,9 @@ model AutomationEvent {
   organizationId   String?
   socialAccountId  String?
   providerEventKey String         @unique // idempotência do webhook
+  // ID da conta do Instagram (entry.id do webhook), gravado pela API SÓ depois de validar que corresponde a uma conta
+  // conectada. Nulo = evento anterior à E2 ou conta não reconhecida; NUNCA preenchido por inferência em eventos antigos.
+  igAccountId      String?
   payload          Json
   status           EventStatus    @default(RECEIVED)
   error            String?

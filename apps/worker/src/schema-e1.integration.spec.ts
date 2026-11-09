@@ -114,6 +114,16 @@ describe.skipIf(!url)("E1: schema aditivo em PostgreSQL real", () => {
     });
   });
 
+  describe("AutomationEvent.igAccountId (E2)", () => {
+    it("evento nasce com igAccountId nulo (eventos antigos nunca são preenchidos por inferência) e o campo é gravável", async () => {
+      const ev = await prisma.automationEvent.create({ data: { providerEventKey: `comment:${run}-ig1`, payload: { field: "comments", value: { id: `${run}-ig1` } } } });
+      expect(ev.igAccountId).toBeNull();
+      const up = await prisma.automationEvent.update({ where: { id: ev.id }, data: { igAccountId: `${run}-ig` } });
+      expect(up.igAccountId).toBe(`${run}-ig`);
+      await prisma.automationEvent.delete({ where: { id: ev.id } });
+    });
+  });
+
   describe("estado CANCELED", () => {
     it("aceita CANCELED em MessageDelivery e PublicReply, sem mudar o padrão PENDING", async () => {
       const d = await prisma.messageDelivery.create({ data: { organizationId: orgId, automationId, commentId: `${run}-c1`, status: "CANCELED", error: "teste" } });
