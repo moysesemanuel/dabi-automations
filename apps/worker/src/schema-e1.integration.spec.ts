@@ -106,6 +106,14 @@ describe.skipIf(!url)("E1: schema aditivo em PostgreSQL real", () => {
     });
   });
 
+  describe("índices de retenção", () => {
+    it("existem os índices que a futura varredura vai usar", async () => {
+      const rows = await prisma.$queryRaw<{ indexname: string }[]>`SELECT indexname FROM pg_indexes WHERE schemaname = 'public'`;
+      const nomes = rows.map((r) => r.indexname);
+      for (const n of ["AuditLog_createdAt_idx", "AutomationEvent_receivedAt_idx", "Invitation_expiresAt_idx", "MessageDelivery_status_updatedAt_idx", "PublicReply_status_updatedAt_idx", "IdempotencyTombstone_expiresAt_idx", "SocialCredential_metaUserId_idx"]) expect(nomes).toContain(n);
+    });
+  });
+
   describe("estado CANCELED", () => {
     it("aceita CANCELED em MessageDelivery e PublicReply, sem mudar o padrão PENDING", async () => {
       const d = await prisma.messageDelivery.create({ data: { organizationId: orgId, automationId, commentId: `${run}-c1`, status: "CANCELED", error: "teste" } });
