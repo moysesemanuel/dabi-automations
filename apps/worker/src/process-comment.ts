@@ -1,5 +1,6 @@
 import { commentEventJobSchema, normalizeKeyword, validateReplyShape, DEFAULT_BUTTON_TITLE, type CommentEventJob } from "@dabi/contracts";
 import { decryptToken } from "@dabi/config";
+import { safeErrorText } from "./safe-error";
 
 /** Resposta privada só é aceita pela Meta até 7 dias após o comentário. */
 export const REPLY_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
@@ -372,7 +373,7 @@ export async function resumePending(deps: Deps, opts: { batch?: number; max?: nu
         report.resumed++;
       } catch (e) {
         report.failed++;
-        log(`retomada falhou (delivery=${d.id}): ${e instanceof Error ? e.message : "erro desconhecido"}`);
+        log(`retomada falhou (delivery=${d.id}): ${safeErrorText(e)}`);
       }
     }
     if (page.length < batch) break;
