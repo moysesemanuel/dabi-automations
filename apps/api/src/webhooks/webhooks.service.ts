@@ -97,6 +97,13 @@ export class WebhooksService {
             ev = await this.prisma.automationEvent.findUnique({ where: { providerEventKey: key } });
           }
         }
+        // Re-checagem DEPOIS de criar o evento: a retenção pode ter gravado o tombstone entre a primeira verificação e a criação.
+        // É só para não enfileirar à toa; a barreira que impede o reprocessamento é o claim atômico do worker.
+        if (created && (await this.tombstoned(String(commentId)))) {
+          await this.prisma.automationEvent.update({ where: { id: ev!.id }, data: { status: "IGNORED", error: "dropped.tombstone" } });
+          this.logger.log(`evento ignorado evento=${ev!.id} motivo=dropped.tombstone`);
+          continue;
+        }
         // Já tratado (PROCESSED/IGNORED/FAILED): não reenfileira.
         // Ainda RECEIVED: a tentativa anterior pode ter falhado ao enfileirar, então tenta de novo.
         // O jobId determinístico impede job duplicado no BullMQ.

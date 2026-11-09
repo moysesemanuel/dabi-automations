@@ -1,6 +1,7 @@
 import { commentEventJobSchema, normalizeKeyword, validateReplyShape, classifyMetaError, flagsCredentialForReconnect, DEFAULT_BUTTON_TITLE, type CommentEventJob } from "@dabi/contracts";
 import { decryptToken } from "@dabi/config";
 import { safeErrorText } from "./safe-error";
+import { claimReservation, cancelIfTombstoned } from "./claim";
 
 /** Resposta privada só é aceita pela Meta até 7 dias após o comentário. */
 export const REPLY_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
@@ -202,8 +203,11 @@ async function runPublicReply(ctx: Ctx): Promise<{ status: Status; error: string
   const a = resolveAuth(ctx);
   if ("error" in a) return finish("FAILED", a.error);
 
-  const claim = await prisma.publicReply.updateMany({ where: { id: row.id, status: "PENDING", attempts: 0 }, data: { attempts: 1 } });
-  if (claim.count !== 1) return { status: "UNKNOWN", error: "outra execução assumiu a resposta pública" };
+  if (!(await claimReservation(prisma, "PublicReply", row.id))) {
+    // recusado: outra execução assumiu OU o comentário está protegido por tombstone (retenção); neste caso encerra a reserva
+    if (await cancelIfTombstoned(prisma, "PublicReply", row.id, data.commentId, (deps.now ?? (() => new Date()))())) return { status: "CANCELED" as any, error: "dropped.tombstone" };
+    return { status: "UNKNOWN", error: "outra execução assumiu a resposta pública" };
+  }
 
   let res: Response;
   try {
@@ -321,8 +325,11 @@ async function runDm(ctx: Ctx): Promise<DmResult> {
   if (now().getTime() - createdAt.getTime() > REPLY_WINDOW_MS) return finish("FAILED", "comentário com mais de 7 dias");
 
   // 2) Claim atômico + contador gravado antes do envio: dois workers nunca enviam o mesmo comentário.
-  const claim = await prisma.messageDelivery.updateMany({ where: { id: delivery.id, status: "PENDING", attempts: 0 }, data: { attempts: 1 } });
-  if (claim.count !== 1) return stop();
+  if (!(await claimReservation(prisma, "MessageDelivery", delivery.id))) {
+    // recusado: outra execução assumiu OU o comentário está protegido por tombstone (retenção); neste caso encerra a reserva
+    await cancelIfTombstoned(prisma, "MessageDelivery", delivery.id, data.commentId, now());
+    return stop();
+  }
 
   // 3) Envio. Sem retry automático depois deste ponto.
   const message = buildMessagePayload(match);
