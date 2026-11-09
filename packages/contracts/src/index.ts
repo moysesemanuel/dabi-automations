@@ -137,3 +137,48 @@ export const updateConnectionOnboardingSchema = z.object({
   instagramInPortfolio: onboardingAnswerSchema.nullable().optional(),
 }); // chaves desconhecidas (ex.: organizationId) são descartadas
 export type UpdateConnectionOnboardingDto = z.infer<typeof updateConnectionOnboardingSchema>;
+
+// ───────────────────────── Jobs da fila de comentários: formato mínimo (E2) ─────────────────────────
+
+/**
+ * Formato MÍNIMO do job: só o ID interno do evento. Nada do comentário (texto, autor, IDs da Meta) vai para o Redis;
+ * o worker lê o que precisa do PostgreSQL no momento do processamento. `.strict()`: qualquer campo extra é rejeitado,
+ * para que dado pessoal não volte a entrar no job por descuido.
+ */
+export const commentEventJobMinimalSchema = z.object({ eventId: z.string().min(1) }).strict();
+export type CommentEventJobMinimal = z.infer<typeof commentEventJobMinimalSchema>;
+
+/** Resultado da leitura de um job. "invalid" NUNCA carrega o conteúdo recebido, só um motivo fixo. */
+export type ParsedCommentEventJob =
+  | { kind: "legacy"; job: CommentEventJob }
+  | { kind: "minimal"; job: CommentEventJobMinimal }
+  | { kind: "invalid"; reason: "not_object" | "legacy_shape_invalid" | "minimal_shape_invalid" };
+
+/**
+ * Aceita os DOIS formatos durante a transição. Distingue pela presença de `commentId`: com ele, é o formato legado
+ * (completo); sem ele, deve ser exatamente `{ eventId }`.
+ */
+export function parseCommentEventJob(raw: unknown): ParsedCommentEventJob {
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return { kind: "invalid", reason: "not_object" };
+  if ("commentId" in raw) {
+    const r = commentEventJobSchema.safeParse(raw);
+    return r.success ? { kind: "legacy", job: r.data } : { kind: "invalid", reason: "legacy_shape_invalid" };
+  }
+  const r = commentEventJobMinimalSchema.safeParse(raw);
+  return r.success ? { kind: "minimal", job: r.data } : { kind: "invalid", reason: "minimal_shape_invalid" };
+}
+
+/** Formato do job que a API enfileira. "legacy" (padrão) = comportamento anterior; "minimal" só com autorização. */
+export const COMMENT_JOB_FORMATS = ["legacy", "minimal"] as const;
+export type CommentJobFormat = (typeof COMMENT_JOB_FORMATS)[number];
+
+/**
+ * Resultado que o worker devolve ao BullMQ (vira `returnvalue` no Redis). SÓ o desfecho: nunca a linha do evento,
+ * o payload, o texto ou o autor do comentário.
+ */
+export type CommentJobOutcome =
+  | "processed" // fluxo concluído (inclui entrega HELD/FAILED/UNKNOWN: o estado fica no banco)
+  | "ignored" // não havia o que fazer (sem automação, comentário da própria conta, conta desconhecida)
+  | "dropped" // evento ausente, já tratado ou comentário já protegido por tombstone: nada enviado
+  | "needs_review"; // inconsistência de associação: nada enviado, evento mantido para análise
+export interface CommentJobResult { outcome: CommentJobOutcome }
